@@ -1,6 +1,11 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="claude:viewport-fit-sides" content="cover">
+<meta name="theme-color" content="#eef1f5" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#0d1118" media="(prefers-color-scheme: dark)">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Radikov Timer">
 <title>Radikov Timer</title>
 <style>
   /* Layout: one full screen. Two speaker panels fill it (stacked on a phone held
@@ -41,6 +46,7 @@
     color: var(--fg);
     font-family: var(--font-ui);
     -webkit-tap-highlight-color: transparent;
+    overscroll-behavior: none;      /* no pull-to-refresh or bounce while tapping */
   }
 
   .app {
@@ -98,6 +104,7 @@
     touch-action: manipulation;   /* no double-tap zoom */
     user-select: none;
     -webkit-user-select: none;
+    -webkit-touch-callout: none;  /* no long-press menu on iPhone */
   }
   .stage:focus-visible { outline: 3px solid var(--a); outline-offset: 4px; border-radius: var(--radius); }
   @media (orientation: landscape) and (min-width: 560px) {
@@ -213,6 +220,7 @@
   // ----- Settings -----
   const TAP_GUARD_MS = 400;       // ignore a second tap this soon after the last (stops accidental double taps)
   const RESET_CONFIRM_MS = 3000;  // how long the "Tap again to reset" prompt stays armed
+  const TAP_VIBRATE_MS = 30;      // short buzz on each tap so you feel it register (Android only; iPhone ignores it)
 
   // ----- Page elements -----
   const el = {
@@ -243,6 +251,7 @@
     const now = performance.now();
     if (now - state.lastTapAt < TAP_GUARD_MS) return;
     state.lastTapAt = now;
+    if (navigator.vibrate) navigator.vibrate(TAP_VIBRATE_MS);
 
     switch (state.phase) {
       case "ready":
