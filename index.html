@@ -1,0 +1,398 @@
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="claude:viewport-fit-sides" content="cover">
+<title>Radikov Timer</title>
+<style>
+  /* Layout: one full screen. Two speaker panels fill it (stacked on a phone held
+     upright, side by side when turned sideways). The whole panel area is one big
+     tap target, like the button on a chess clock. */
+  :root {
+    --bg: #eef1f5;
+    --surface: #ffffff;
+    --fg: #141a24;
+    --muted: #5b6577;
+    --line: #d5dbe5;
+    --a: #1f5fd1;
+    --a-soft: #dfe8fa;
+    --b: #c24f1b;
+    --b-soft: #f8e3d8;
+    --on-accent: #ffffff;
+    --font-ui: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
+    --font-digits: ui-rounded, "SF Pro Rounded", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    --radius: 18px;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #0d1118; --surface: #161c27; --fg: #e8ecf3; --muted: #97a1b3; --line: #273041;
+      --a: #6098f2; --a-soft: #1a2a47; --b: #ee8150; --b-soft: #3b2318; --on-accent: #0b0f16;
+      color-scheme: dark;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #0d1118; --surface: #161c27; --fg: #e8ecf3; --muted: #97a1b3; --line: #273041;
+    --a: #6098f2; --a-soft: #1a2a47; --b: #ee8150; --b-soft: #3b2318; --on-accent: #0b0f16;
+    color-scheme: dark;
+  }
+
+  html, body { height: 100%; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--fg);
+    font-family: var(--font-ui);
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  .app {
+    box-sizing: border-box;
+    height: 100%;
+    display: grid;
+    grid-template-rows: auto 1fr auto;
+    gap: 12px;
+    padding-block: 12px;
+    padding-left: max(16px, env(safe-area-inset-left, 0px));
+    padding-right: max(16px, env(safe-area-inset-right, 0px));
+  }
+
+  /* Top bar: round number and reset button */
+  .bar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+  }
+  .round {
+    font-size: 0.8rem;
+    font-weight: 600;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--muted);
+    font-variant-numeric: tabular-nums;
+  }
+  .reset {
+    font: inherit;
+    font-size: 0.9rem;
+    font-weight: 600;
+    color: var(--fg);
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    padding: 8px 16px;
+    cursor: pointer;
+  }
+  .reset.is-armed {
+    background: var(--b);
+    border-color: var(--b);
+    color: var(--on-accent);
+  }
+
+  /* The big tap area holding both speaker panels */
+  .stage {
+    all: unset;
+    box-sizing: border-box;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    cursor: pointer;
+    touch-action: manipulation;   /* no double-tap zoom */
+    user-select: none;
+    -webkit-user-select: none;
+  }
+  .stage:focus-visible { outline: 3px solid var(--a); outline-offset: 4px; border-radius: var(--radius); }
+  @media (orientation: landscape) and (min-width: 560px) {
+    .stage { flex-direction: row; }
+  }
+
+  /* One speaker panel. data-speaker="a" or "b" picks its colour. */
+  .panel {
+    --c: var(--a);
+    --c-soft: var(--a-soft);
+    flex: 1;
+    min-height: 0;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    background: var(--surface);
+    border: 2px solid var(--line);
+    border-radius: var(--radius);
+    transition: background-color 180ms ease, border-color 180ms ease, color 180ms ease;
+  }
+  .panel[data-speaker="b"] { --c: var(--b); --c-soft: var(--b-soft); }
+
+  .name {
+    font-size: 1rem;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--c);
+  }
+  .time {
+    font-family: var(--font-digits);
+    font-size: clamp(3.5rem, min(19vw, 15vh), 10rem);
+    font-weight: 600;
+    line-height: 1;
+    font-variant-numeric: tabular-nums;
+    letter-spacing: -0.02em;
+  }
+  .status {
+    font-size: 0.85rem;
+    font-weight: 600;
+    padding: 4px 12px;
+    border-radius: 999px;
+    color: var(--muted);
+    border: 1px solid var(--line);
+  }
+
+  /* Speaking now: panel fills with the speaker's colour */
+  .panel.is-speaking { background: var(--c); border-color: var(--c); color: var(--on-accent); }
+  .panel.is-speaking .name { color: var(--on-accent); }
+  .panel.is-speaking .status { color: var(--on-accent); border-color: currentColor; }
+
+  /* Finished this round: soft tint, time kept on screen */
+  .panel.is-finished { background: var(--c-soft); border-color: var(--c); }
+  .panel.is-finished .status { color: var(--c); border-color: var(--c); }
+
+  .hint {
+    margin: 0;
+    text-align: center;
+    font-size: 0.95rem;
+    color: var(--muted);
+    text-wrap: balance;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .panel { transition: none; }
+  }
+</style>
+
+<div class="app">
+  <header class="bar">
+    <span class="round" id="round">Round 1</span>
+    <button class="reset" id="reset" type="button">Reset</button>
+  </header>
+
+  <button class="stage" id="stage" type="button" aria-describedby="hint">
+    <span class="panel" id="panel-a" data-speaker="a">
+      <span class="name">Speaker A</span>
+      <span class="time" id="time-a">0:00.0</span>
+      <span class="status" id="status-a">Waiting</span>
+    </span>
+    <span class="panel" id="panel-b" data-speaker="b">
+      <span class="name">Speaker B</span>
+      <span class="time" id="time-b">0:00.0</span>
+      <span class="status" id="status-b">Waiting</span>
+    </span>
+  </button>
+
+  <p class="hint" id="hint" aria-live="polite">Tap anywhere to start Speaker A</p>
+</div>
+
+<script>
+  "use strict";
+
+  /*
+   * HOW IT WORKS
+   * The timer moves through four phases, one tap at a time:
+   *
+   *   "ready"  -> both timers show 0:00.0
+   *   "a"      -> Speaker A's timer runs
+   *   "b"      -> A's time is frozen on screen, Speaker B's timer runs
+   *   "done"   -> both times are frozen on screen (the round is over)
+   *
+   * A tap in "done" clears both timers and starts Speaker A for the next round.
+   *
+   * Times are measured with performance.now(), a clock that keeps counting even if
+   * the screen updates pause (for example when the phone switches apps), so the
+   * result stays accurate.
+   */
+
+  // ----- Settings -----
+  const TAP_GUARD_MS = 400;       // ignore a second tap this soon after the last (stops accidental double taps)
+  const RESET_CONFIRM_MS = 3000;  // how long the "Tap again to reset" prompt stays armed
+
+  // ----- Page elements -----
+  const el = {
+    stage: document.getElementById("stage"),
+    reset: document.getElementById("reset"),
+    round: document.getElementById("round"),
+    hint: document.getElementById("hint"),
+    panel: { a: document.getElementById("panel-a"), b: document.getElementById("panel-b") },
+    time: { a: document.getElementById("time-a"), b: document.getElementById("time-b") },
+    status: { a: document.getElementById("status-a"), b: document.getElementById("status-b") },
+  };
+
+  // ----- State -----
+  const state = {
+    phase: "ready",            // "ready" | "a" | "b" | "done"
+    round: 1,
+    startedAt: 0,              // when the current speaker started (performance.now() value)
+    elapsed: { a: 0, b: 0 },   // finished speaking times in milliseconds
+    lastTapAt: -Infinity,
+  };
+
+  function isRunning() {
+    return state.phase === "a" || state.phase === "b";
+  }
+
+  // ----- Tap handling -----
+  function handleTap() {
+    const now = performance.now();
+    if (now - state.lastTapAt < TAP_GUARD_MS) return;
+    state.lastTapAt = now;
+
+    switch (state.phase) {
+      case "ready":
+        startSpeaker("a", now);
+        break;
+      case "a":
+        state.elapsed.a = now - state.startedAt;
+        startSpeaker("b", now);
+        break;
+      case "b":
+        state.elapsed.b = now - state.startedAt;
+        state.phase = "done";
+        break;
+      case "done":
+        state.round += 1;
+        state.elapsed = { a: 0, b: 0 };
+        startSpeaker("a", now);
+        break;
+    }
+
+    updateScreenLock();
+    render();
+  }
+
+  function startSpeaker(speaker, now) {
+    state.phase = speaker;
+    state.startedAt = now;
+    startTicking();
+  }
+
+  function resetAll() {
+    state.phase = "ready";
+    state.round = 1;
+    state.elapsed = { a: 0, b: 0 };
+    updateScreenLock();
+    render();
+  }
+
+  // ----- Reset button (asks for a second tap so it can't happen by accident) -----
+  let resetTimer = 0;
+
+  function disarmReset() {
+    clearTimeout(resetTimer);
+    el.reset.classList.remove("is-armed");
+    el.reset.textContent = "Reset";
+  }
+
+  el.reset.addEventListener("click", () => {
+    if (el.reset.classList.contains("is-armed")) {
+      disarmReset();
+      resetAll();
+      return;
+    }
+    el.reset.classList.add("is-armed");
+    el.reset.textContent = "Tap again to reset";
+    resetTimer = setTimeout(disarmReset, RESET_CONFIRM_MS);
+  });
+
+  el.stage.addEventListener("click", handleTap);
+
+  // ----- Drawing the screen -----
+  function formatTime(ms) {
+    const tenths = Math.floor(ms / 100);
+    const totalSeconds = Math.floor(tenths / 10);
+    const hours = Math.floor(totalSeconds / 3600);
+    const minutes = Math.floor(totalSeconds / 60) % 60;
+    const seconds = String(totalSeconds % 60).padStart(2, "0");
+    const tenth = tenths % 10;
+    if (hours > 0) return `${hours}:${String(minutes).padStart(2, "0")}:${seconds}.${tenth}`;
+    return `${minutes}:${seconds}.${tenth}`;
+  }
+
+  // What each panel shows in each phase: [status text, panel look]
+  const PANEL_VIEW = {
+    ready: { a: ["Waiting", ""],         b: ["Waiting", ""] },
+    a:     { a: ["Speaking", "speaking"], b: ["Up next", ""] },
+    b:     { a: ["Finished", "finished"], b: ["Speaking", "speaking"] },
+    done:  { a: ["Finished", "finished"], b: ["Finished", "finished"] },
+  };
+
+  const HINTS = {
+    ready: () => "Tap anywhere to start Speaker A",
+    a: () => "Tap when Speaker A finishes",
+    b: () => "Tap when Speaker B finishes",
+    done: () => `Round ${state.round} complete. Tap to start round ${state.round + 1}`,
+  };
+
+  function currentTime(speaker) {
+    if (state.phase === speaker) return performance.now() - state.startedAt;
+    return state.elapsed[speaker];
+  }
+
+  function setText(node, text) {
+    if (node.textContent !== text) node.textContent = text;
+  }
+
+  function render() {
+    for (const speaker of ["a", "b"]) {
+      const [statusText, look] = PANEL_VIEW[state.phase][speaker];
+      setText(el.time[speaker], formatTime(currentTime(speaker)));
+      setText(el.status[speaker], statusText);
+      el.panel[speaker].classList.toggle("is-speaking", look === "speaking");
+      el.panel[speaker].classList.toggle("is-finished", look === "finished");
+    }
+    setText(el.round, `Round ${state.round}`);
+    setText(el.hint, HINTS[state.phase]());
+  }
+
+  // Redraw on every screen frame while a timer runs.
+  let frameId = 0;
+
+  function startTicking() {
+    if (!frameId) frameId = requestAnimationFrame(tick);
+  }
+
+  function tick() {
+    frameId = 0;
+    render();
+    if (isRunning()) startTicking();
+  }
+
+  // ----- Keep the phone screen awake while someone is speaking -----
+  // Not every browser allows this; if it is refused, the timer still works normally.
+  let wakeLock = null;
+  let wakeLockPending = false;
+
+  async function updateScreenLock() {
+    if (!isRunning()) {
+      if (wakeLock) wakeLock.release().catch(() => {});
+      return;
+    }
+    if (wakeLock || wakeLockPending || !("wakeLock" in navigator) || document.visibilityState !== "visible") return;
+    wakeLockPending = true;
+    try {
+      wakeLock = await navigator.wakeLock.request("screen");
+      wakeLock.addEventListener("release", () => { wakeLock = null; });
+    } catch {
+      // Refused (battery saver, unsupported, or opened from a file). Nothing to do.
+    } finally {
+      wakeLockPending = false;
+    }
+  }
+
+  // The browser drops the lock when you leave the page; ask again when you come back.
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "visible") {
+      updateScreenLock();
+      render();
+    }
+  });
+
+  render();
+</script>
