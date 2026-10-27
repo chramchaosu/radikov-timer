@@ -244,6 +244,7 @@
   @media (orientation: landscape) and (min-width: 560px) {
     .stage { flex-direction: row; align-items: stretch; }
     .stage .summary { align-self: center; width: 15rem; }
+    .panel[data-speaker="a"] { transform: none; }  /* side by side: both upright */
   }
 
   /* One speaker panel. data-speaker="a" or "b" picks its colour. */
@@ -264,6 +265,9 @@
     transition: background-color 180ms ease, border-color 180ms ease;
   }
   .panel[data-speaker="b"] { --c: var(--b); --c-soft: var(--b-soft); }
+  /* Speaker A's panel is upside down, so with the phone lying flat between the
+     two speakers, each of them reads their own timer the right way up. */
+  .panel[data-speaker="a"] { transform: rotate(180deg); }
   .panel .name {
     box-sizing: border-box;
     padding-inline: 12px;
