@@ -33,15 +33,25 @@ doesn't skip a speaker.
 
 ## Putting it on your phone
 
-The whole app is one file: `index.html`. It needs no internet connection.
+The app lives at **https://chramchaosu.github.io/radikov-timer/** (GitHub Pages,
+updated automatically after every push to `main`).
 
-1. Download `index.html` to your phone (for example from the GitHub page: open the
-   file, then use **Download raw file**).
-2. Open it in your phone's browser (Chrome, Safari, Firefox...).
+**iPhone:** open the address in **Safari**, tap **Share** (square with an arrow),
+then **Add to Home Screen**. It opens full-screen and works without internet
+once it has been opened.
+
+**Android:** open the address in **Chrome**, tap the **⋮** menu, then
+**Add to Home screen** (or **Install app**).
+
+The app itself is still one file, `index.html`, which also works when opened on
+its own. The other files only add the home-screen icon and offline use.
 
 ## For developers
 
 - Plain HTML, CSS and JavaScript in a single file. No build step, no dependencies.
+- `manifest.webmanifest` and `icon-*.png` make it installable on the home screen;
+  `sw.js` is a service worker that keeps a copy for offline use (network first,
+  so new versions arrive whenever the phone is online).
 - The logic is a small state machine (`ready` -> `a` -> `b` -> `a` ...), described
   in the comment at the top of the `<script>` block. The session being timed is in
   `session` (`rounds` holds `{ a, b }` times in milliseconds); live timer state is

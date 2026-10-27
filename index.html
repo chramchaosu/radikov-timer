@@ -6,6 +6,11 @@
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-title" content="Radikov Timer">
+<!-- App icon and install info. These files sit next to index.html on the web
+     address; when index.html is opened on its own they are simply skipped. -->
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="icon-180.png">
+<link rel="icon" type="image/png" href="icon-192.png">
 <title>Radikov Timer</title>
 <style>
   /* Layout: four screens, one visible at a time.
@@ -66,7 +71,9 @@
   .screen {
     box-sizing: border-box;
     height: 100%;
-    padding-block: 12px;
+    /* Keep clear of the notch and home bar when opened from the home screen */
+    padding-top: max(12px, env(safe-area-inset-top, 0px));
+    padding-bottom: max(12px, env(safe-area-inset-bottom, 0px));
     padding-left: max(16px, env(safe-area-inset-left, 0px));
     padding-right: max(16px, env(safe-area-inset-right, 0px));
   }
@@ -1136,6 +1143,13 @@
   }
 
   byId("history-new").addEventListener("click", openSetup);
+
+  // ----- Offline support (only when opened from the web address) -----
+  if ("serviceWorker" in navigator && location.protocol === "https:") {
+    navigator.serviceWorker.register("sw.js").catch(() => {
+      // Not available here (for example inside a preview). The app works without it.
+    });
+  }
 
   // ----- Start on the setup screen -----
   openSetup();
