@@ -8,20 +8,26 @@
 <meta name="apple-mobile-web-app-title" content="Radikov Timer">
 <title>Radikov Timer</title>
 <style>
-  /* Layout: one full screen. Speaker A's panel on top, a round summary in the
-     middle, Speaker B's panel below (side by side when the phone is turned
-     sideways). The whole area is one big tap target, like the button on a
-     chess clock. */
+  /* Layout: four screens, one visible at a time.
+       setup   -> choose the speaking-time range, start a session
+       timer   -> full-screen tap area: Speaker A on top, round summary in the
+                  middle, Speaker B below (side by side when the phone is sideways)
+       summary -> results of one session
+       history -> list of saved sessions
+     Speaker colours (blue, amber) are kept apart from the range colours
+     (green = inside the range, red = outside it). */
   :root {
     --bg: #eef1f5;
     --surface: #ffffff;
     --fg: #141a24;
     --muted: #5b6577;
     --line: #d5dbe5;
-    --a: #1f5fd1;
-    --a-soft: #dfe8fa;
-    --b: #c24f1b;
-    --b-soft: #f8e3d8;
+    --a: #2a5bd7;
+    --a-soft: #e1e9fb;
+    --b: #a86500;
+    --b-soft: #f7ead2;
+    --ok: #137a3a;
+    --bad: #c62828;
     --on-accent: #ffffff;
     --font-ui: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
     --font-digits: ui-rounded, "SF Pro Rounded", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
@@ -30,70 +36,181 @@
   @media (prefers-color-scheme: dark) {
     :root:not([data-theme="light"]) {
       --bg: #0d1118; --surface: #161c27; --fg: #e8ecf3; --muted: #97a1b3; --line: #273041;
-      --a: #6098f2; --a-soft: #1a2a47; --b: #ee8150; --b-soft: #3b2318; --on-accent: #0b0f16;
+      --a: #6b9cf5; --a-soft: #1a2a47; --b: #e9a83a; --b-soft: #3a2a10;
+      --ok: #4cc979; --bad: #ff6b6b; --on-accent: #0b0f16;
       color-scheme: dark;
     }
   }
   :root[data-theme="dark"] {
     --bg: #0d1118; --surface: #161c27; --fg: #e8ecf3; --muted: #97a1b3; --line: #273041;
-    --a: #6098f2; --a-soft: #1a2a47; --b: #ee8150; --b-soft: #3b2318; --on-accent: #0b0f16;
+    --a: #6b9cf5; --a-soft: #1a2a47; --b: #e9a83a; --b-soft: #3a2a10;
+    --ok: #4cc979; --bad: #ff6b6b; --on-accent: #0b0f16;
     color-scheme: dark;
   }
 
+  [hidden] { display: none !important; }
   html, body { height: 100%; }
   body {
     margin: 0;
     background: var(--bg);
     color: var(--fg);
     font-family: var(--font-ui);
+    font-size: 16px;
     -webkit-tap-highlight-color: transparent;
     overscroll-behavior: none;      /* no pull-to-refresh or bounce while tapping */
   }
+  button, input { font: inherit; color: inherit; }
+  button:focus-visible, input:focus-visible { outline: 3px solid var(--a); outline-offset: 2px; }
 
-  .app {
+  .app { height: 100%; }
+  .screen {
     box-sizing: border-box;
     height: 100%;
-    display: grid;
-    grid-template-rows: auto 1fr auto;
-    gap: 12px;
     padding-block: 12px;
     padding-left: max(16px, env(safe-area-inset-left, 0px));
     padding-right: max(16px, env(safe-area-inset-right, 0px));
   }
 
-  /* Top bar: current round number and reset button */
-  .bar {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 12px;
-  }
-  .round {
-    font-size: 0.8rem;
+  /* ---------- Shared pieces ---------- */
+  .btn {
     font-weight: 600;
-    letter-spacing: 0.08em;
-    text-transform: uppercase;
-    color: var(--muted);
-    font-variant-numeric: tabular-nums;
-  }
-  .reset {
-    font: inherit;
-    font-size: 0.9rem;
-    font-weight: 600;
-    color: var(--fg);
     background: var(--surface);
     border: 1px solid var(--line);
     border-radius: 999px;
-    padding: 8px 16px;
+    padding: 10px 18px;
     cursor: pointer;
   }
-  .reset.is-armed {
-    background: var(--b);
-    border-color: var(--b);
-    color: var(--on-accent);
-  }
+  .btn.primary { background: var(--a); border-color: var(--a); color: var(--on-accent); }
+  .btn.danger, .btn.is-armed { background: var(--bad); border-color: var(--bad); color: var(--on-accent); }
+  .btn.small { font-size: 0.9rem; padding: 8px 16px; }
 
-  /* The big tap area holding both speaker panels and the summary */
+  .eyebrow {
+    font-size: 0.75rem;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--muted);
+  }
+  .num { font-family: var(--font-digits); font-variant-numeric: tabular-nums; }
+  .is-ok { color: var(--ok); }
+  .is-bad { color: var(--bad); }
+
+  /* Ratio bar: blue part = Speaker A's share, amber part = Speaker B's share */
+  .ratio { display: block; }
+  .ratio-track {
+    display: block;
+    height: 10px;
+    border-radius: 999px;
+    background: var(--b);
+    overflow: hidden;
+  }
+  .ratio-fill {
+    display: block;
+    height: 100%;
+    background: var(--a);
+    transition: width 400ms ease;
+  }
+  .ratio.is-empty .ratio-track { background: var(--line); }
+  .ratio.is-empty .ratio-fill { width: 0 !important; }
+  .ratio-legend {
+    display: flex;
+    justify-content: space-between;
+    margin-top: 4px;
+    font-size: 0.8rem;
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+  }
+  .ratio-pa { color: var(--a); }
+  .ratio-pb { color: var(--b); }
+
+  /* ---------- Page screens (setup, summary, history) ---------- */
+  .page { overflow-y: auto; }
+  .page-inner {
+    max-width: 560px;
+    margin: 0 auto;
+    padding-block: 12px 32px;
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+  }
+  .page h1, .page h2 { margin: 0; text-wrap: balance; }
+  .page h1 { font-size: 1.9rem; }
+  .page h2 { font-size: 1.5rem; }
+  .lede { margin: 0; color: var(--muted); line-height: 1.5; max-width: 60ch; }
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    padding: 16px;
+  }
+  .actions { display: flex; flex-wrap: wrap; gap: 10px; }
+
+  /* Setup form */
+  .limits { display: flex; flex-direction: column; gap: 16px; }
+  .limit { border: 0; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+  .limit legend { padding: 0; margin-bottom: 8px; font-weight: 700; }
+  .limit-inputs { display: flex; align-items: center; gap: 8px; }
+  .limit input {
+    width: 4.5em;
+    box-sizing: border-box;
+    padding: 10px 12px;
+    font-size: 1.25rem;
+    font-family: var(--font-digits);
+    font-variant-numeric: tabular-nums;
+    text-align: center;
+    background: var(--bg);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+  }
+  .limit label { color: var(--muted); }
+  .error { margin: 0; color: var(--bad); font-weight: 600; }
+
+  /* Summary */
+  .totals { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  .total-card { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+  .total-card .name { font-weight: 700; }
+  .total-card[data-speaker="a"] .name { color: var(--a); }
+  .total-card[data-speaker="b"] .name { color: var(--b); }
+  .total-card .big { font-size: 1.9rem; font-weight: 600; }
+  .total-card .sub { font-size: 0.85rem; color: var(--muted); }
+  .facts { margin: 0; color: var(--muted); }
+  .table-wrap { overflow-x: auto; }
+  .rounds { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+  .rounds th, .rounds td { padding: 8px 6px; text-align: right; border-bottom: 1px solid var(--line); }
+  .rounds th:first-child, .rounds td:first-child { text-align: left; }
+  .rounds th { font-size: 0.75rem; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); }
+  .rounds th.a { color: var(--a); }
+  .rounds th.b { color: var(--b); }
+  .rounds td.num { font-weight: 600; }
+  .legend-note { margin: 8px 0 0; font-size: 0.8rem; color: var(--muted); }
+
+  /* History */
+  .history { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 10px; }
+  .history-item {
+    width: 100%;
+    text-align: left;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    padding: 14px 16px;
+    cursor: pointer;
+  }
+  .history-item .when { font-weight: 700; }
+  .history-item .what { font-size: 0.9rem; color: var(--muted); font-variant-numeric: tabular-nums; }
+
+  /* ---------- Timer screen ---------- */
+  .timer-screen {
+    display: grid;
+    grid-template-rows: auto 1fr auto;
+    gap: 10px;
+  }
+  .bar { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+  .bar-info { display: flex; flex-direction: column; gap: 2px; }
+  .bar-range { font-size: 0.85rem; color: var(--muted); font-variant-numeric: tabular-nums; }
+
   .stage {
     all: unset;
     box-sizing: border-box;
@@ -110,7 +227,7 @@
   .stage:focus-visible { outline: 3px solid var(--a); outline-offset: 4px; border-radius: var(--radius); }
   @media (orientation: landscape) and (min-width: 560px) {
     .stage { flex-direction: row; align-items: stretch; }
-    .summary { align-self: center; }
+    .stage .summary { align-self: center; width: 15rem; }
   }
 
   /* One speaker panel. data-speaker="a" or "b" picks its colour. */
@@ -128,21 +245,20 @@
     background: var(--surface);
     border: 2px solid var(--line);
     border-radius: var(--radius);
-    transition: background-color 180ms ease, border-color 180ms ease, color 180ms ease;
+    transition: background-color 180ms ease, border-color 180ms ease;
   }
   .panel[data-speaker="b"] { --c: var(--b); --c-soft: var(--b-soft); }
-
-  .name {
+  .panel .name {
     font-size: 0.95rem;
     font-weight: 700;
     letter-spacing: 0.06em;
     text-transform: uppercase;
     color: var(--c);
   }
-  .time {
+  .panel .time {
     font-family: var(--font-digits);
-    font-size: clamp(3rem, min(18vw, 11vh), 9rem);
-    font-weight: 600;
+    font-size: clamp(2.6rem, min(17vw, 9.5vh), 8rem);
+    font-weight: 700;
     line-height: 1;
     font-variant-numeric: tabular-nums;
     letter-spacing: -0.02em;
@@ -155,17 +271,15 @@
     color: var(--muted);
     border: 1px solid var(--line);
   }
+  .status.is-ok { color: var(--ok); border-color: var(--ok); }
+  .status.is-bad { color: var(--bad); border-color: var(--bad); }
 
-  /* Speaking now: panel fills with the speaker's colour */
-  .panel.is-speaking { background: var(--c); border-color: var(--c); color: var(--on-accent); }
-  .panel.is-speaking .name { color: var(--on-accent); }
-  .panel.is-speaking .status { color: var(--on-accent); border-color: currentColor; }
+  /* Speaking now: tinted panel with a strong border in the speaker's colour */
+  .panel.is-speaking { background: var(--c-soft); border-color: var(--c); border-width: 3px; }
+  /* Finished this round: plain panel, thin border in the speaker's colour */
+  .panel.is-finished { border-color: var(--c); }
 
-  /* Finished this round: soft tint, time kept on screen */
-  .panel.is-finished { background: var(--c-soft); border-color: var(--c); }
-  .panel.is-finished .status { color: var(--c); border-color: var(--c); }
-
-  /* Middle summary: last round and running totals, one column per speaker */
+  /* Middle box: last round, running totals and the ratio bar */
   .summary {
     display: grid;
     grid-template-columns: 1fr auto auto;
@@ -188,69 +302,175 @@
   .sum-head.a { color: var(--a); }
   .sum-head.b { color: var(--b); }
   .sum-label { font-size: 0.85rem; color: var(--muted); }
-  .sum-val {
-    font-family: var(--font-digits);
-    font-size: 1.05rem;
-    font-weight: 600;
-    text-align: right;
-  }
+  .sum-val { font-family: var(--font-digits); font-size: 1.05rem; font-weight: 600; text-align: right; }
   .sum-total { font-weight: 700; color: var(--fg); }
-  .sum-total.sum-val { font-size: 1.3rem; }
+  .sum-total.sum-val { font-size: 1.25rem; }
+  .summary .ratio { grid-column: 1 / -1; margin-top: 6px; }
   .summary.is-updated { animation: flash 900ms ease-out; }
   @keyframes flash {
     from { background: var(--a-soft); border-color: var(--a); }
     to   { background: var(--surface); border-color: var(--line); }
   }
 
-  .hint {
-    margin: 0;
-    text-align: center;
-    font-size: 0.9rem;
-    color: var(--muted);
-    text-wrap: balance;
-  }
+  .hint { margin: 0; text-align: center; font-size: 0.9rem; color: var(--muted); text-wrap: balance; }
 
   @media (prefers-reduced-motion: reduce) {
-    .panel { transition: none; }
+    .panel, .ratio-fill { transition: none; }
     .summary.is-updated { animation: none; }
   }
 </style>
 
 <div class="app">
-  <header class="bar">
-    <span class="round" id="round">Round 1</span>
-    <button class="reset" id="reset" type="button">Reset</button>
-  </header>
 
-  <button class="stage" id="stage" type="button" aria-describedby="hint">
-    <span class="panel" id="panel-a" data-speaker="a">
-      <span class="name">Speaker A</span>
-      <span class="time" id="time-a">0:00.0</span>
-      <span class="status" id="status-a">Waiting</span>
-    </span>
+  <!-- ===== Screen 1: set up a new session ===== -->
+  <section class="screen page" id="screen-setup">
+    <div class="page-inner">
+      <div>
+        <p class="eyebrow">New session</p>
+        <h1>Radikov Timer</h1>
+      </div>
+      <p class="lede">Set how long each speaker should talk in one turn. While the timer is running, a time inside this range shows in green and a time outside it shows in red.</p>
 
-    <span class="summary" id="summary" aria-live="polite">
-      <span></span>
-      <span class="sum-head a">A</span>
-      <span class="sum-head b">B</span>
+      <form class="card limits" id="setup-form" novalidate>
+        <fieldset class="limit">
+          <legend>Minimum per turn</legend>
+          <span class="limit-inputs">
+            <input id="min-m" type="number" inputmode="numeric" min="0" max="99" step="1" aria-label="Minimum, minutes">
+            <label for="min-m">min</label>
+            <input id="min-s" type="number" inputmode="numeric" min="0" max="59" step="1" aria-label="Minimum, seconds">
+            <label for="min-s">s</label>
+          </span>
+        </fieldset>
+        <fieldset class="limit">
+          <legend>Maximum per turn</legend>
+          <span class="limit-inputs">
+            <input id="max-m" type="number" inputmode="numeric" min="0" max="99" step="1" aria-label="Maximum, minutes">
+            <label for="max-m">min</label>
+            <input id="max-s" type="number" inputmode="numeric" min="0" max="59" step="1" aria-label="Maximum, seconds">
+            <label for="max-s">s</label>
+          </span>
+        </fieldset>
+        <p class="error" id="setup-error" role="alert" hidden></p>
+        <div class="actions">
+          <button class="btn primary" type="submit">Start session</button>
+        </div>
+      </form>
 
-      <span class="sum-label" id="last-label">Last round</span>
-      <span class="sum-val" id="last-a">–</span>
-      <span class="sum-val" id="last-b">–</span>
+      <div class="actions">
+        <button class="btn" id="setup-history" type="button">Past sessions</button>
+      </div>
+    </div>
+  </section>
 
-      <span class="sum-label sum-total" id="total-label">Total · 0 rounds</span>
-      <span class="sum-val sum-total" id="total-a">0:00.0</span>
-      <span class="sum-val sum-total" id="total-b">0:00.0</span>
-    </span>
+  <!-- ===== Screen 2: the timer ===== -->
+  <section class="screen timer-screen" id="screen-timer" hidden>
+    <header class="bar">
+      <span class="bar-info">
+        <span class="eyebrow" id="round">Round 1</span>
+        <span class="bar-range" id="bar-range">Range 1:00 – 2:00</span>
+      </span>
+      <button class="btn small" id="stop" type="button">Stop</button>
+    </header>
 
-    <span class="panel" id="panel-b" data-speaker="b">
-      <span class="name">Speaker B</span>
-      <span class="time" id="time-b">0:00.0</span>
-      <span class="status" id="status-b">Waiting</span>
-    </span>
-  </button>
+    <button class="stage" id="stage" type="button" aria-describedby="hint">
+      <span class="panel" id="panel-a" data-speaker="a">
+        <span class="name">Speaker A</span>
+        <span class="time" id="time-a">0:00.0</span>
+        <span class="status" id="status-a">Waiting</span>
+      </span>
 
-  <p class="hint" id="hint">Tap anywhere to start Speaker A</p>
+      <span class="summary" id="live-summary" aria-live="polite">
+        <span></span>
+        <span class="sum-head a">A</span>
+        <span class="sum-head b">B</span>
+
+        <span class="sum-label" id="last-label">Last round</span>
+        <span class="sum-val" id="last-a">–</span>
+        <span class="sum-val" id="last-b">–</span>
+
+        <span class="sum-label sum-total" id="total-label">Total · 0 rounds</span>
+        <span class="sum-val sum-total" id="total-a">0:00.0</span>
+        <span class="sum-val sum-total" id="total-b">0:00.0</span>
+
+        <span class="ratio" id="live-ratio" role="img"></span>
+      </span>
+
+      <span class="panel" id="panel-b" data-speaker="b">
+        <span class="name">Speaker B</span>
+        <span class="time" id="time-b">0:00.0</span>
+        <span class="status" id="status-b">Waiting</span>
+      </span>
+    </button>
+
+    <p class="hint" id="hint">Tap anywhere to start Speaker A</p>
+  </section>
+
+  <!-- ===== Screen 3: summary of one session ===== -->
+  <section class="screen page" id="screen-summary" hidden>
+    <div class="page-inner">
+      <div>
+        <p class="eyebrow" id="sum-eyebrow">Session finished</p>
+        <h2 id="sum-date">Session</h2>
+      </div>
+      <p class="facts" id="sum-facts"></p>
+      <p class="error" id="sum-save-error" hidden>This session could not be saved on this device. Its results are only shown here.</p>
+      <p class="lede" id="sum-empty" hidden>No round was finished, so there is nothing to save. A round counts once both speakers have spoken.</p>
+
+      <div id="sum-results">
+        <div class="totals">
+          <div class="card total-card" data-speaker="a">
+            <span class="name">Speaker A</span>
+            <span class="big num" id="sum-total-a">0:00.0</span>
+            <span class="sub" id="sum-inrange-a"></span>
+          </div>
+          <div class="card total-card" data-speaker="b">
+            <span class="name">Speaker B</span>
+            <span class="big num" id="sum-total-b">0:00.0</span>
+            <span class="sub" id="sum-inrange-b"></span>
+          </div>
+        </div>
+      </div>
+
+      <div class="card" id="sum-ratio-card">
+        <p class="eyebrow">Share of speaking time</p>
+        <span class="ratio" id="sum-ratio" role="img"></span>
+      </div>
+
+      <div class="card" id="sum-rounds-card">
+        <div class="table-wrap">
+          <table class="rounds">
+            <thead>
+              <tr><th scope="col">Round</th><th scope="col" class="a">Speaker A</th><th scope="col" class="b">Speaker B</th></tr>
+            </thead>
+            <tbody id="sum-rounds"></tbody>
+          </table>
+        </div>
+        <p class="legend-note">Green: inside the range. Red: outside it (↓ too short, ↑ too long).</p>
+      </div>
+
+      <div class="actions">
+        <button class="btn primary" id="sum-new" type="button">New session</button>
+        <button class="btn" id="sum-history" type="button">Past sessions</button>
+        <button class="btn" id="sum-delete" type="button" hidden>Delete session</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===== Screen 4: past sessions ===== -->
+  <section class="screen page" id="screen-history" hidden>
+    <div class="page-inner">
+      <div>
+        <p class="eyebrow">Saved on this phone</p>
+        <h2>Past sessions</h2>
+      </div>
+      <ul class="history" id="history-list"></ul>
+      <p class="lede" id="history-empty" hidden>No sessions saved yet. A session is saved when at least one round is finished.</p>
+      <div class="actions">
+        <button class="btn primary" id="history-new" type="button">New session</button>
+      </div>
+    </div>
+  </section>
+
 </div>
 
 <script>
@@ -258,131 +478,108 @@
 
   /*
    * HOW IT WORKS
-   * The timer moves through three phases, one tap at a time:
+   *
+   * A session starts on the setup screen, where you choose the minimum and
+   * maximum speaking time for one turn. The timer then moves through three
+   * phases, one tap at a time:
    *
    *   "ready"  -> nothing has started yet, both timers show 0:00.0
    *   "a"      -> Speaker A's timer runs
    *   "b"      -> A's time is frozen on screen, Speaker B's timer runs
    *
    * A tap during "b" finishes the round: both times are saved, shown in the
-   * middle of the screen as "Last round", and added to the totals. The next
-   * round then starts right away with Speaker A's timer running from 0.
+   * middle of the screen, and added to the totals. The next round starts right
+   * away with Speaker A's timer running from 0.
    *
-   * Times are measured with performance.now(), a clock that keeps counting even if
-   * the screen updates pause (for example when the phone switches apps), so the
-   * result stays accurate.
+   * "Stop" ends the session. If Speaker B was speaking, that round is finished
+   * and counted. If Speaker A was speaking, that unfinished round is left out.
+   * The session summary is then shown.
+   *
+   * Sessions are saved in the browser's storage (localStorage) on this device,
+   * after every finished round, so a closed page loses at most one round.
+   *
+   * Times are measured with performance.now(), a clock that keeps counting even
+   * if the screen updates pause (for example when the phone switches apps).
    */
 
   // ----- Settings -----
-  const TAP_GUARD_MS = 400;       // ignore a second tap this soon after the last (stops accidental double taps)
-  const RESET_CONFIRM_MS = 3000;  // how long the "Tap again to reset" prompt stays armed
-  const TAP_VIBRATE_MS = 30;      // short buzz on each tap so you feel it register (Android only; iPhone ignores it)
+  const TAP_GUARD_MS = 400;        // ignore a second tap this soon after the last (stops accidental double taps)
+  const CONFIRM_MS = 3000;         // how long a "Tap again to ..." button stays armed
+  const TAP_VIBRATE_MS = 30;       // short buzz on each tap (Android only; iPhone ignores it)
+  const DEFAULT_LIMITS = { min: 60_000, max: 120_000 };  // 1:00 to 2:00
+  const STORAGE_KEYS = {
+    sessions: "radikov-timer.sessions.v1",
+    limits: "radikov-timer.limits.v1",
+  };
 
   // ----- Page elements -----
   const byId = (id) => document.getElementById(id);
-  const el = {
-    stage: byId("stage"),
-    reset: byId("reset"),
-    round: byId("round"),
-    hint: byId("hint"),
-    panel: { a: byId("panel-a"), b: byId("panel-b") },
-    time: { a: byId("time-a"), b: byId("time-b") },
-    status: { a: byId("status-a"), b: byId("status-b") },
-    summary: byId("summary"),
-    lastLabel: byId("last-label"),
-    last: { a: byId("last-a"), b: byId("last-b") },
-    totalLabel: byId("total-label"),
-    total: { a: byId("total-a"), b: byId("total-b") },
+  const screens = {
+    setup: byId("screen-setup"),
+    timer: byId("screen-timer"),
+    summary: byId("screen-summary"),
+    history: byId("screen-history"),
   };
 
-  // ----- State -----
-  function freshState() {
-    return {
-      phase: "ready",            // "ready" | "a" | "b"
-      startedAt: 0,              // when the current speaker started (performance.now() value)
-      current: { a: 0, b: 0 },   // finished times in the round being played, in milliseconds
-      rounds: [],                // every completed round: { a: ms, b: ms }
-      total: { a: 0, b: 0 },     // sum of all completed rounds, in milliseconds
-      lastTapAt: -Infinity,
-    };
-  }
-  let state = freshState();
-
-  function isRunning() {
-    return state.phase === "a" || state.phase === "b";
+  function showScreen(name) {
+    for (const [key, node] of Object.entries(screens)) node.hidden = key !== name;
+    screens[name].scrollTop = 0;
   }
 
-  // ----- Tap handling -----
-  function handleTap() {
-    const now = performance.now();
-    if (now - state.lastTapAt < TAP_GUARD_MS) return;
-    state.lastTapAt = now;
-    if (navigator.vibrate) navigator.vibrate(TAP_VIBRATE_MS);
+  // ===================================================================
+  // Storage: saved sessions and the last-used range, kept on this device
+  // ===================================================================
 
-    switch (state.phase) {
-      case "ready":
-        startSpeaker("a", now);
-        break;
-      case "a":
-        state.current.a = now - state.startedAt;
-        startSpeaker("b", now);
-        break;
-      case "b":
-        state.current.b = now - state.startedAt;
-        finishRound();
-        startSpeaker("a", now);
-        break;
+  function readJSON(key, fallback) {
+    try {
+      const raw = localStorage.getItem(key);
+      return raw ? JSON.parse(raw) : fallback;
+    } catch {
+      return fallback;  // storage blocked or data damaged
     }
-
-    updateScreenLock();
-    render();
   }
 
-  function startSpeaker(speaker, now) {
-    state.phase = speaker;
-    state.startedAt = now;
-    startTicking();
-  }
-
-  // Save the round's times, add them to the totals, and clear the timers.
-  function finishRound() {
-    const round = { a: state.current.a, b: state.current.b };
-    state.rounds.push(round);
-    state.total.a += round.a;
-    state.total.b += round.b;
-    state.current = { a: 0, b: 0 };
-    flashSummary();
-  }
-
-  function resetAll() {
-    state = freshState();
-    updateScreenLock();
-    render();
-  }
-
-  // ----- Reset button (asks for a second tap so it can't happen by accident) -----
-  let resetTimer = 0;
-
-  function disarmReset() {
-    clearTimeout(resetTimer);
-    el.reset.classList.remove("is-armed");
-    el.reset.textContent = "Reset";
-  }
-
-  el.reset.addEventListener("click", () => {
-    if (el.reset.classList.contains("is-armed")) {
-      disarmReset();
-      resetAll();
-      return;
+  function writeJSON(key, value) {
+    try {
+      localStorage.setItem(key, JSON.stringify(value));
+      return true;
+    } catch {
+      return false;     // storage blocked or full
     }
-    el.reset.classList.add("is-armed");
-    el.reset.textContent = "Tap again to reset";
-    resetTimer = setTimeout(disarmReset, RESET_CONFIRM_MS);
-  });
+  }
 
-  el.stage.addEventListener("click", handleTap);
+  function isValidSession(s) {
+    return s && typeof s.id === "string" && typeof s.startedAt === "string"
+      && Number.isFinite(s.min) && Number.isFinite(s.max) && Array.isArray(s.rounds);
+  }
 
-  // ----- Drawing the screen -----
+  function loadSessions() {
+    const list = readJSON(STORAGE_KEYS.sessions, []);
+    return Array.isArray(list) ? list.filter(isValidSession) : [];
+  }
+
+  // Add the session, or replace the saved copy with the same id.
+  function saveSession(session) {
+    const list = loadSessions().filter((s) => s.id !== session.id);
+    list.push(session);
+    return writeJSON(STORAGE_KEYS.sessions, list);
+  }
+
+  function deleteSession(id) {
+    writeJSON(STORAGE_KEYS.sessions, loadSessions().filter((s) => s.id !== id));
+  }
+
+  function loadLimits() {
+    const saved = readJSON(STORAGE_KEYS.limits, null);
+    const ok = saved && Number.isFinite(saved.min) && Number.isFinite(saved.max) && saved.max > saved.min;
+    return ok ? saved : DEFAULT_LIMITS;
+  }
+
+  // ===================================================================
+  // Helpers for times, dates and the range check
+  // ===================================================================
+
+  // 83456 ms -> "1:23.4"
   function formatTime(ms) {
     const tenths = Math.floor(ms / 100);
     const totalSeconds = Math.floor(tenths / 10);
@@ -393,6 +590,249 @@
     if (hours > 0) return `${hours}:${String(minutes).padStart(2, "0")}:${seconds}.${tenth}`;
     return `${minutes}:${seconds}.${tenth}`;
   }
+
+  // 90000 ms -> "1:30" (used for the range limits)
+  function formatLimit(ms) {
+    const totalSeconds = Math.round(ms / 1000);
+    return `${Math.floor(totalSeconds / 60)}:${String(totalSeconds % 60).padStart(2, "0")}`;
+  }
+
+  function formatDate(iso) {
+    return new Date(iso).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" });
+  }
+
+  function plural(count, word) {
+    return `${count} ${word}${count === 1 ? "" : "s"}`;
+  }
+
+  // "under" | "ok" | "over"
+  function rangeState(ms, limits) {
+    if (ms < limits.min) return "under";
+    if (ms > limits.max) return "over";
+    return "ok";
+  }
+
+  const RANGE_WORDS = { under: "too short", ok: "in range", over: "too long" };
+  const RANGE_MARKS = { under: " ↓", ok: "", over: " ↑" };
+
+  function sumRounds(rounds) {
+    return rounds.reduce((t, r) => ({ a: t.a + r.a, b: t.b + r.b }), { a: 0, b: 0 });
+  }
+
+  function setText(node, text) {
+    if (node.textContent !== text) node.textContent = text;
+  }
+
+  function setRangeClass(node, state) {
+    node.classList.toggle("is-ok", state === "ok");
+    node.classList.toggle("is-bad", state === "under" || state === "over");
+  }
+
+  // Draw the ratio bar inside `node` for the given totals.
+  function renderRatio(node, total) {
+    if (!node.firstChild) {
+      node.innerHTML =
+        '<span class="ratio-track"><span class="ratio-fill"></span></span>' +
+        '<span class="ratio-legend"><span class="ratio-pa"></span><span class="ratio-pb"></span></span>';
+    }
+    const sum = total.a + total.b;
+    const shareA = sum > 0 ? Math.round((total.a / sum) * 100) : 0;
+    const shareB = sum > 0 ? 100 - shareA : 0;
+    node.classList.toggle("is-empty", sum === 0);
+    node.querySelector(".ratio-fill").style.width = `${shareA}%`;
+    setText(node.querySelector(".ratio-pa"), sum > 0 ? `A ${shareA}%` : "A –");
+    setText(node.querySelector(".ratio-pb"), sum > 0 ? `B ${shareB}%` : "B –");
+    node.setAttribute("aria-label", sum > 0
+      ? `Share of speaking time: Speaker A ${shareA} percent, Speaker B ${shareB} percent`
+      : "Share of speaking time: nothing recorded yet");
+  }
+
+  // Two-tap button: the first tap arms it, the second tap within a few seconds confirms.
+  function makeConfirmButton(button, armedLabel, onConfirm) {
+    const normalLabel = button.textContent;
+    let timer = 0;
+    const disarm = () => {
+      clearTimeout(timer);
+      button.classList.remove("is-armed");
+      button.textContent = normalLabel;
+    };
+    button.addEventListener("click", () => {
+      if (button.classList.contains("is-armed")) {
+        disarm();
+        onConfirm();
+        return;
+      }
+      button.classList.add("is-armed");
+      button.textContent = armedLabel;
+      timer = setTimeout(disarm, CONFIRM_MS);
+    });
+    return disarm;
+  }
+
+  // ===================================================================
+  // Screen 1: setup
+  // ===================================================================
+
+  const setup = {
+    form: byId("setup-form"),
+    minM: byId("min-m"), minS: byId("min-s"),
+    maxM: byId("max-m"), maxS: byId("max-s"),
+    error: byId("setup-error"),
+    historyButton: byId("setup-history"),
+  };
+
+  function openSetup() {
+    const limits = loadLimits();
+    const fill = (mInput, sInput, ms) => {
+      const totalSeconds = Math.round(ms / 1000);
+      mInput.value = Math.floor(totalSeconds / 60);
+      sInput.value = totalSeconds % 60;
+    };
+    fill(setup.minM, setup.minS, limits.min);
+    fill(setup.maxM, setup.maxS, limits.max);
+    setup.error.hidden = true;
+    const count = loadSessions().length;
+    setup.historyButton.textContent = count > 0 ? `Past sessions (${count})` : "Past sessions";
+    showScreen("setup");
+  }
+
+  // Read one "minutes + seconds" pair. Returns milliseconds, or null if invalid.
+  function readDuration(mInput, sInput) {
+    const m = mInput.value.trim() === "" ? 0 : Number(mInput.value);
+    const s = sInput.value.trim() === "" ? 0 : Number(sInput.value);
+    if (!Number.isInteger(m) || !Number.isInteger(s) || m < 0 || m > 99 || s < 0 || s > 59) return null;
+    return (m * 60 + s) * 1000;
+  }
+
+  setup.form.addEventListener("submit", (event) => {
+    event.preventDefault();
+    const min = readDuration(setup.minM, setup.minS);
+    const max = readDuration(setup.maxM, setup.maxS);
+    let problem = "";
+    if (min === null || max === null) problem = "Use whole numbers: 0 to 99 minutes and 0 to 59 seconds.";
+    else if (max <= min) problem = "The maximum must be longer than the minimum.";
+    if (problem) {
+      setup.error.textContent = problem;
+      setup.error.hidden = false;
+      return;
+    }
+    writeJSON(STORAGE_KEYS.limits, { min, max });
+    startSession({ min, max });
+  });
+
+  setup.historyButton.addEventListener("click", openHistory);
+
+  // ===================================================================
+  // Screen 2: the timer
+  // ===================================================================
+
+  const el = {
+    stage: byId("stage"),
+    stop: byId("stop"),
+    round: byId("round"),
+    range: byId("bar-range"),
+    hint: byId("hint"),
+    panel: { a: byId("panel-a"), b: byId("panel-b") },
+    time: { a: byId("time-a"), b: byId("time-b") },
+    status: { a: byId("status-a"), b: byId("status-b") },
+    summary: byId("live-summary"),
+    lastLabel: byId("last-label"),
+    last: { a: byId("last-a"), b: byId("last-b") },
+    totalLabel: byId("total-label"),
+    total: { a: byId("total-a"), b: byId("total-b") },
+    ratio: byId("live-ratio"),
+  };
+
+  // The session being timed. Saved to storage as `session`.
+  let session = null;   // { id, startedAt, endedAt, min, max, rounds: [{ a, b }] }
+  let saveFailed = false;
+
+  // Live timer state (not saved).
+  const timer = {
+    phase: "ready",            // "ready" | "a" | "b"
+    startedAt: 0,              // when the current speaker started (performance.now() value)
+    current: { a: 0, b: 0 },   // finished times in the round being played, in milliseconds
+    lastTapAt: -Infinity,
+  };
+
+  function isRunning() {
+    return timer.phase === "a" || timer.phase === "b";
+  }
+
+  function startSession(limits) {
+    session = {
+      id: `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
+      startedAt: new Date().toISOString(),
+      endedAt: null,
+      min: limits.min,
+      max: limits.max,
+      rounds: [],
+    };
+    saveFailed = false;
+    timer.phase = "ready";
+    timer.current = { a: 0, b: 0 };
+    timer.lastTapAt = -Infinity;
+    disarmStop();
+    setText(el.range, `Range ${formatLimit(session.min)} – ${formatLimit(session.max)}`);
+    showScreen("timer");
+    renderTimer();
+  }
+
+  function handleTap() {
+    const now = performance.now();
+    if (now - timer.lastTapAt < TAP_GUARD_MS) return;
+    timer.lastTapAt = now;
+    if (navigator.vibrate) navigator.vibrate(TAP_VIBRATE_MS);
+
+    switch (timer.phase) {
+      case "ready":
+        startSpeaker("a", now);
+        break;
+      case "a":
+        timer.current.a = now - timer.startedAt;
+        startSpeaker("b", now);
+        break;
+      case "b":
+        timer.current.b = now - timer.startedAt;
+        finishRound();
+        startSpeaker("a", now);
+        break;
+    }
+
+    updateScreenLock();
+    renderTimer();
+  }
+
+  function startSpeaker(speaker, now) {
+    timer.phase = speaker;
+    timer.startedAt = now;
+    startTicking();
+  }
+
+  // Save the round's times, add them to the totals, and clear the timers.
+  function finishRound() {
+    session.rounds.push({ a: timer.current.a, b: timer.current.b });
+    timer.current = { a: 0, b: 0 };
+    if (!saveSession(session)) saveFailed = true;
+    flashSummary();
+  }
+
+  function stopSession() {
+    if (timer.phase === "b") {
+      timer.current.b = performance.now() - timer.startedAt;
+      finishRound();
+    }
+    timer.phase = "ready";
+    updateScreenLock();
+
+    session.endedAt = new Date().toISOString();
+    if (session.rounds.length > 0 && !saveSession(session)) saveFailed = true;
+    openSummary(session, { fromHistory: false, saveFailed });
+    session = null;
+  }
+
+  el.stage.addEventListener("click", handleTap);
+  const disarmStop = makeConfirmButton(el.stop, "Tap again to stop", stopSession);
 
   // What each panel shows in each phase: [status text, panel look]
   const PANEL_VIEW = {
@@ -408,36 +848,42 @@
   };
 
   function currentTime(speaker) {
-    if (state.phase === speaker) return performance.now() - state.startedAt;
-    return state.current[speaker];
+    if (timer.phase === speaker) return performance.now() - timer.startedAt;
+    return timer.current[speaker];
   }
 
-  function setText(node, text) {
-    if (node.textContent !== text) node.textContent = text;
-  }
+  function renderTimer() {
+    if (!session) return;
 
-  function render() {
     for (const speaker of ["a", "b"]) {
-      const [statusText, look] = PANEL_VIEW[state.phase][speaker];
-      setText(el.time[speaker], formatTime(currentTime(speaker)));
-      setText(el.status[speaker], statusText);
+      const [statusText, look] = PANEL_VIEW[timer.phase][speaker];
+      const ms = currentTime(speaker);
+      // Only colour a time once that speaker has started this round.
+      const state = look ? rangeState(ms, session) : null;
+      setText(el.time[speaker], formatTime(ms));
+      setText(el.status[speaker], state ? `${statusText} · ${RANGE_WORDS[state]}` : statusText);
+      setRangeClass(el.time[speaker], state);
+      setRangeClass(el.status[speaker], state);
       el.panel[speaker].classList.toggle("is-speaking", look === "speaking");
       el.panel[speaker].classList.toggle("is-finished", look === "finished");
     }
 
-    const done = state.rounds.length;
-    const last = state.rounds[done - 1];
+    const done = session.rounds.length;
+    const last = session.rounds[done - 1];
+    const total = sumRounds(session.rounds);
     setText(el.round, `Round ${done + 1}`);
     setText(el.lastLabel, last ? `Round ${done}` : "Last round");
     for (const speaker of ["a", "b"]) {
       setText(el.last[speaker], last ? formatTime(last[speaker]) : "–");
-      setText(el.total[speaker], formatTime(state.total[speaker]));
+      setRangeClass(el.last[speaker], last ? rangeState(last[speaker], session) : null);
+      setText(el.total[speaker], formatTime(total[speaker]));
     }
-    setText(el.totalLabel, `Total · ${done} ${done === 1 ? "round" : "rounds"}`);
-    setText(el.hint, HINTS[state.phase]);
+    setText(el.totalLabel, `Total · ${plural(done, "round")}`);
+    renderRatio(el.ratio, total);
+    setText(el.hint, HINTS[timer.phase]);
   }
 
-  // Briefly highlight the summary so you notice the round was saved.
+  // Briefly highlight the middle box so you notice the round was saved.
   function flashSummary() {
     el.summary.classList.remove("is-updated");
     void el.summary.offsetWidth; // restart the animation if it is already playing
@@ -453,7 +899,7 @@
 
   function tick() {
     frameId = 0;
-    render();
+    renderTimer();
     if (isRunning()) startTicking();
   }
 
@@ -483,9 +929,125 @@
   document.addEventListener("visibilitychange", () => {
     if (document.visibilityState === "visible") {
       updateScreenLock();
-      render();
+      renderTimer();
     }
   });
 
-  render();
+  // ===================================================================
+  // Screen 3: session summary
+  // ===================================================================
+
+  const sum = {
+    eyebrow: byId("sum-eyebrow"),
+    date: byId("sum-date"),
+    facts: byId("sum-facts"),
+    saveError: byId("sum-save-error"),
+    empty: byId("sum-empty"),
+    results: byId("sum-results"),
+    ratioCard: byId("sum-ratio-card"),
+    ratio: byId("sum-ratio"),
+    roundsCard: byId("sum-rounds-card"),
+    rounds: byId("sum-rounds"),
+    total: { a: byId("sum-total-a"), b: byId("sum-total-b") },
+    inRange: { a: byId("sum-inrange-a"), b: byId("sum-inrange-b") },
+    newButton: byId("sum-new"),
+    historyButton: byId("sum-history"),
+    deleteButton: byId("sum-delete"),
+  };
+  let summaryId = null;  // id of the past session being shown, for "Delete"
+
+  function openSummary(s, { fromHistory, saveFailed = false }) {
+    summaryId = fromHistory ? s.id : null;
+    disarmDelete();
+
+    const count = s.rounds.length;
+    const total = sumRounds(s.rounds);
+    setText(sum.eyebrow, fromHistory ? "Past session" : "Session finished");
+    setText(sum.date, formatDate(s.startedAt));
+    setText(sum.facts, `${plural(count, "round")} · range ${formatLimit(s.min)} – ${formatLimit(s.max)} per turn`);
+    sum.saveError.hidden = !(saveFailed && count > 0);
+
+    const hasRounds = count > 0;
+    sum.empty.hidden = hasRounds;
+    sum.results.hidden = !hasRounds;
+    sum.ratioCard.hidden = !hasRounds;
+    sum.roundsCard.hidden = !hasRounds;
+    sum.deleteButton.hidden = !fromHistory;
+
+    for (const speaker of ["a", "b"]) {
+      setText(sum.total[speaker], formatTime(total[speaker]));
+      const ok = s.rounds.filter((r) => rangeState(r[speaker], s) === "ok").length;
+      setText(sum.inRange[speaker], `${ok} of ${plural(count, "turn")} in range`);
+    }
+    renderRatio(sum.ratio, total);
+
+    sum.rounds.replaceChildren(...s.rounds.map((r, i) => {
+      const row = document.createElement("tr");
+      const label = document.createElement("td");
+      label.textContent = String(i + 1);
+      row.append(label);
+      for (const speaker of ["a", "b"]) {
+        const state = rangeState(r[speaker], s);
+        const cell = document.createElement("td");
+        cell.className = "num";
+        cell.textContent = formatTime(r[speaker]) + RANGE_MARKS[state];
+        cell.title = RANGE_WORDS[state];
+        setRangeClass(cell, state);
+        row.append(cell);
+      }
+      return row;
+    }));
+
+    showScreen("summary");
+  }
+
+  sum.newButton.addEventListener("click", openSetup);
+  sum.historyButton.addEventListener("click", openHistory);
+  const disarmDelete = makeConfirmButton(sum.deleteButton, "Tap again to delete", () => {
+    if (summaryId) deleteSession(summaryId);
+    openHistory();
+  });
+
+  // ===================================================================
+  // Screen 4: past sessions
+  // ===================================================================
+
+  const historyList = byId("history-list");
+  const historyEmpty = byId("history-empty");
+
+  function openHistory() {
+    const sessions = loadSessions().sort((x, y) => y.startedAt.localeCompare(x.startedAt));
+    historyEmpty.hidden = sessions.length > 0;
+    historyList.replaceChildren(...sessions.map((s) => {
+      const total = sumRounds(s.rounds);
+      const item = document.createElement("li");
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "history-item";
+
+      const when = document.createElement("span");
+      when.className = "when";
+      when.textContent = formatDate(s.startedAt);
+
+      const what = document.createElement("span");
+      what.className = "what";
+      what.textContent = `${plural(s.rounds.length, "round")} · A ${formatTime(total.a)} · B ${formatTime(total.b)}`;
+
+      const ratio = document.createElement("span");
+      ratio.className = "ratio";
+      ratio.setAttribute("role", "img");
+      renderRatio(ratio, total);
+
+      button.append(when, what, ratio);
+      button.addEventListener("click", () => openSummary(s, { fromHistory: true }));
+      item.append(button);
+      return item;
+    }));
+    showScreen("history");
+  }
+
+  byId("history-new").addEventListener("click", openSetup);
+
+  // ----- Start on the setup screen -----
+  openSetup();
 </script>
