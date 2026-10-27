@@ -4,8 +4,10 @@ A two-speaker timer that works like a chess clock.
 
 ## How to use
 
-0. Choose the **minimum** and **maximum** speaking time for one turn, then tap
-   **Start session**. While a speaker talks, their time is **green** inside this
+0. Enter the two **speakers' names** (the first one speaks first). The names
+   from your last session are already typed in; check them and tap
+   **Confirm and start**. Also choose the **minimum** and **maximum** speaking
+   time for one turn. While a speaker talks, their time is **green** inside this
    range and **red** outside it (too short or too long).
 1. Tap anywhere on the timer area: **Speaker A**'s clock starts from 0.
 2. Tap again: Speaker A's time freezes on screen and **Speaker B**'s clock starts from 0.
@@ -47,7 +49,9 @@ The whole app is one file: `index.html`. It needs no internet connection.
 - Four screens (setup, timer, summary, history) live in one page; `showScreen()`
   switches between them.
 - Sessions are stored in `localStorage` under `radikov-timer.sessions.v1`, the
-  last-used range under `radikov-timer.limits.v1`.
+  last-used range under `radikov-timer.limits.v1`, the last-used names under
+  `radikov-timer.names.v1`. Sessions saved before names existed show
+  "Speaker A" / "Speaker B".
 - Times are measured with `performance.now()`, so they stay accurate even if the
   screen redraw pauses.
 - The Screen Wake Lock API keeps the screen on while a speaker is talking, where

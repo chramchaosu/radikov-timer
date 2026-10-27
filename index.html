@@ -115,13 +115,15 @@
   .ratio-legend {
     display: flex;
     justify-content: space-between;
+    gap: 12px;
     margin-top: 4px;
     font-size: 0.8rem;
     font-weight: 700;
     font-variant-numeric: tabular-nums;
   }
+  .ratio-pa, .ratio-pb { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .ratio-pa { color: var(--a); }
-  .ratio-pb { color: var(--b); }
+  .ratio-pb { color: var(--b); text-align: right; }
 
   /* ---------- Page screens (setup, summary, history) ---------- */
   .page { overflow-y: auto; }
@@ -163,7 +165,21 @@
     border-radius: 10px;
   }
   .limit label { color: var(--muted); }
+  .name-inputs { display: grid; gap: 6px; }
+  .name-label { font-size: 0.85rem; font-weight: 700; }
+  .name-label.a { color: var(--a); }
+  .name-label.b { color: var(--b); margin-top: 6px; }
+  .limit input[type="text"] {
+    width: 100%;
+    text-align: left;
+    font-family: var(--font-ui);
+    font-size: 1.1rem;
+  }
+  .note { margin: 0; font-size: 0.9rem; color: var(--muted); line-height: 1.4; }
   .error { margin: 0; color: var(--bad); font-weight: 600; }
+
+  /* Names can be long: cut them off with "..." instead of breaking the layout */
+  .clip { min-width: 0; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
   /* Summary */
   .totals { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
@@ -249,6 +265,8 @@
   }
   .panel[data-speaker="b"] { --c: var(--b); --c-soft: var(--b-soft); }
   .panel .name {
+    box-sizing: border-box;
+    padding-inline: 12px;
     font-size: 0.95rem;
     font-weight: 700;
     letter-spacing: 0.06em;
@@ -293,6 +311,7 @@
     font-variant-numeric: tabular-nums;
   }
   .sum-head {
+    max-width: 7em;
     font-size: 0.7rem;
     font-weight: 700;
     letter-spacing: 0.08em;
@@ -329,9 +348,19 @@
         <p class="eyebrow">New session</p>
         <h1>Radikov Timer</h1>
       </div>
-      <p class="lede">Set how long each speaker should talk in one turn. While the timer is running, a time inside this range shows in green and a time outside it shows in red.</p>
+      <p class="lede">Enter who is speaking and how long each of them should talk in one turn. While the timer is running, a time inside this range shows in green and a time outside it shows in red.</p>
 
       <form class="card limits" id="setup-form" novalidate>
+        <fieldset class="limit">
+          <legend>Speakers</legend>
+          <span class="name-inputs">
+            <label class="name-label a" for="name-a">Speaks first</label>
+            <input id="name-a" type="text" maxlength="30" autocomplete="off" autocapitalize="words" placeholder="Speaker A">
+            <label class="name-label b" for="name-b">Speaks second</label>
+            <input id="name-b" type="text" maxlength="30" autocomplete="off" autocapitalize="words" placeholder="Speaker B">
+          </span>
+          <p class="note" id="names-note" hidden>These are the names from your last session. Check them, change them if needed, then confirm.</p>
+        </fieldset>
         <fieldset class="limit">
           <legend>Minimum per turn</legend>
           <span class="limit-inputs">
@@ -352,7 +381,7 @@
         </fieldset>
         <p class="error" id="setup-error" role="alert" hidden></p>
         <div class="actions">
-          <button class="btn primary" type="submit">Start session</button>
+          <button class="btn primary" id="setup-start" type="submit">Start session</button>
         </div>
       </form>
 
@@ -374,15 +403,15 @@
 
     <button class="stage" id="stage" type="button" aria-describedby="hint">
       <span class="panel" id="panel-a" data-speaker="a">
-        <span class="name">Speaker A</span>
+        <span class="name clip" id="pname-a">Speaker A</span>
         <span class="time" id="time-a">0:00.0</span>
         <span class="status" id="status-a">Waiting</span>
       </span>
 
       <span class="summary" id="live-summary" aria-live="polite">
         <span></span>
-        <span class="sum-head a">A</span>
-        <span class="sum-head b">B</span>
+        <span class="sum-head a clip" id="head-a">A</span>
+        <span class="sum-head b clip" id="head-b">B</span>
 
         <span class="sum-label" id="last-label">Last round</span>
         <span class="sum-val" id="last-a">–</span>
@@ -396,7 +425,7 @@
       </span>
 
       <span class="panel" id="panel-b" data-speaker="b">
-        <span class="name">Speaker B</span>
+        <span class="name clip" id="pname-b">Speaker B</span>
         <span class="time" id="time-b">0:00.0</span>
         <span class="status" id="status-b">Waiting</span>
       </span>
@@ -419,12 +448,12 @@
       <div id="sum-results">
         <div class="totals">
           <div class="card total-card" data-speaker="a">
-            <span class="name">Speaker A</span>
+            <span class="name clip" id="sum-name-a">Speaker A</span>
             <span class="big num" id="sum-total-a">0:00.0</span>
             <span class="sub" id="sum-inrange-a"></span>
           </div>
           <div class="card total-card" data-speaker="b">
-            <span class="name">Speaker B</span>
+            <span class="name clip" id="sum-name-b">Speaker B</span>
             <span class="big num" id="sum-total-b">0:00.0</span>
             <span class="sub" id="sum-inrange-b"></span>
           </div>
@@ -440,7 +469,7 @@
         <div class="table-wrap">
           <table class="rounds">
             <thead>
-              <tr><th scope="col">Round</th><th scope="col" class="a">Speaker A</th><th scope="col" class="b">Speaker B</th></tr>
+              <tr><th scope="col">Round</th><th scope="col" class="a" id="sum-th-a">Speaker A</th><th scope="col" class="b" id="sum-th-b">Speaker B</th></tr>
             </thead>
             <tbody id="sum-rounds"></tbody>
           </table>
@@ -479,8 +508,10 @@
   /*
    * HOW IT WORKS
    *
-   * A session starts on the setup screen, where you choose the minimum and
-   * maximum speaking time for one turn. The timer then moves through three
+   * A session starts on the setup screen, where you enter the two speakers'
+   * names (pre-typed from the last session) and choose the minimum and maximum
+   * speaking time for one turn. In the code the speakers are always "a" (speaks
+   * first) and "b" (speaks second); the names are only used for display. The timer then moves through three
    * phases, one tap at a time:
    *
    *   "ready"  -> nothing has started yet, both timers show 0:00.0
@@ -507,9 +538,12 @@
   const CONFIRM_MS = 3000;         // how long a "Tap again to ..." button stays armed
   const TAP_VIBRATE_MS = 30;       // short buzz on each tap (Android only; iPhone ignores it)
   const DEFAULT_LIMITS = { min: 60_000, max: 120_000 };  // 1:00 to 2:00
+  const DEFAULT_NAMES = { a: "Speaker A", b: "Speaker B" };
+  const NAME_MAX_LENGTH = 30;
   const STORAGE_KEYS = {
     sessions: "radikov-timer.sessions.v1",
     limits: "radikov-timer.limits.v1",
+    names: "radikov-timer.names.v1",
   };
 
   // ----- Page elements -----
@@ -575,6 +609,27 @@
     return ok ? saved : DEFAULT_LIMITS;
   }
 
+  // Names typed for the last session, or null if there are none yet.
+  function loadNames() {
+    const saved = readJSON(STORAGE_KEYS.names, null);
+    const ok = saved && typeof saved.a === "string" && typeof saved.b === "string";
+    return ok ? saved : null;
+  }
+
+  // Speaker names of a session. Sessions saved before names existed get the defaults.
+  function namesOf(s) {
+    const n = (s && s.names) || {};
+    return {
+      a: (typeof n.a === "string" && n.a) || DEFAULT_NAMES.a,
+      b: (typeof n.b === "string" && n.b) || DEFAULT_NAMES.b,
+    };
+  }
+
+  // Tidy a typed name: no extra spaces, not too long.
+  function cleanName(text) {
+    return text.trim().replace(/\s+/g, " ").slice(0, NAME_MAX_LENGTH);
+  }
+
   // ===================================================================
   // Helpers for times, dates and the range check
   // ===================================================================
@@ -628,8 +683,8 @@
     node.classList.toggle("is-bad", state === "under" || state === "over");
   }
 
-  // Draw the ratio bar inside `node` for the given totals.
-  function renderRatio(node, total) {
+  // Draw the ratio bar inside `node` for the given totals and speaker names.
+  function renderRatio(node, total, names) {
     if (!node.firstChild) {
       node.innerHTML =
         '<span class="ratio-track"><span class="ratio-fill"></span></span>' +
@@ -640,10 +695,10 @@
     const shareB = sum > 0 ? 100 - shareA : 0;
     node.classList.toggle("is-empty", sum === 0);
     node.querySelector(".ratio-fill").style.width = `${shareA}%`;
-    setText(node.querySelector(".ratio-pa"), sum > 0 ? `A ${shareA}%` : "A –");
-    setText(node.querySelector(".ratio-pb"), sum > 0 ? `B ${shareB}%` : "B –");
+    setText(node.querySelector(".ratio-pa"), sum > 0 ? `${names.a} ${shareA}%` : `${names.a} –`);
+    setText(node.querySelector(".ratio-pb"), sum > 0 ? `${names.b} ${shareB}%` : `${names.b} –`);
     node.setAttribute("aria-label", sum > 0
-      ? `Share of speaking time: Speaker A ${shareA} percent, Speaker B ${shareB} percent`
+      ? `Share of speaking time: ${names.a} ${shareA} percent, ${names.b} ${shareB} percent`
       : "Share of speaking time: nothing recorded yet");
   }
 
@@ -675,6 +730,9 @@
 
   const setup = {
     form: byId("setup-form"),
+    nameA: byId("name-a"), nameB: byId("name-b"),
+    namesNote: byId("names-note"),
+    start: byId("setup-start"),
     minM: byId("min-m"), minS: byId("min-s"),
     maxM: byId("max-m"), maxS: byId("max-s"),
     error: byId("setup-error"),
@@ -690,6 +748,14 @@
     };
     fill(setup.minM, setup.minS, limits.min);
     fill(setup.maxM, setup.maxS, limits.max);
+
+    // Pre-type last session's names; the start button then asks to confirm them.
+    const names = loadNames();
+    setup.nameA.value = names ? names.a : "";
+    setup.nameB.value = names ? names.b : "";
+    setup.namesNote.hidden = !names;
+    setup.start.textContent = names ? "Confirm and start" : "Start session";
+
     setup.error.hidden = true;
     const count = loadSessions().length;
     setup.historyButton.textContent = count > 0 ? `Past sessions (${count})` : "Past sessions";
@@ -708,8 +774,13 @@
     event.preventDefault();
     const min = readDuration(setup.minM, setup.minS);
     const max = readDuration(setup.maxM, setup.maxS);
+    const names = {
+      a: cleanName(setup.nameA.value) || DEFAULT_NAMES.a,
+      b: cleanName(setup.nameB.value) || DEFAULT_NAMES.b,
+    };
     let problem = "";
-    if (min === null || max === null) problem = "Use whole numbers: 0 to 99 minutes and 0 to 59 seconds.";
+    if (names.a.toLowerCase() === names.b.toLowerCase()) problem = "Give the two speakers different names.";
+    else if (min === null || max === null) problem = "Use whole numbers: 0 to 99 minutes and 0 to 59 seconds.";
     else if (max <= min) problem = "The maximum must be longer than the minimum.";
     if (problem) {
       setup.error.textContent = problem;
@@ -717,7 +788,8 @@
       return;
     }
     writeJSON(STORAGE_KEYS.limits, { min, max });
-    startSession({ min, max });
+    writeJSON(STORAGE_KEYS.names, names);
+    startSession({ min, max }, names);
   });
 
   setup.historyButton.addEventListener("click", openHistory);
@@ -732,6 +804,8 @@
     round: byId("round"),
     range: byId("bar-range"),
     hint: byId("hint"),
+    name: { a: byId("pname-a"), b: byId("pname-b") },
+    head: { a: byId("head-a"), b: byId("head-b") },
     panel: { a: byId("panel-a"), b: byId("panel-b") },
     time: { a: byId("time-a"), b: byId("time-b") },
     status: { a: byId("status-a"), b: byId("status-b") },
@@ -744,7 +818,7 @@
   };
 
   // The session being timed. Saved to storage as `session`.
-  let session = null;   // { id, startedAt, endedAt, min, max, rounds: [{ a, b }] }
+  let session = null;   // { id, startedAt, endedAt, names: { a, b }, min, max, rounds: [{ a, b }] }
   let saveFailed = false;
 
   // Live timer state (not saved).
@@ -759,11 +833,12 @@
     return timer.phase === "a" || timer.phase === "b";
   }
 
-  function startSession(limits) {
+  function startSession(limits, names) {
     session = {
       id: `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
       startedAt: new Date().toISOString(),
       endedAt: null,
+      names,
       min: limits.min,
       max: limits.max,
       rounds: [],
@@ -773,7 +848,11 @@
     timer.current = { a: 0, b: 0 };
     timer.lastTapAt = -Infinity;
     disarmStop();
-    setText(el.range, `Range ${formatLimit(session.min)} – ${formatLimit(session.max)}`);
+    for (const speaker of ["a", "b"]) {
+      setText(el.name[speaker], names[speaker]);
+      setText(el.head[speaker], names[speaker]);
+    }
+    setText(el.range,`Range ${formatLimit(session.min)} – ${formatLimit(session.max)}`);
     showScreen("timer");
     renderTimer();
   }
@@ -842,9 +921,9 @@
   };
 
   const HINTS = {
-    ready: "Tap anywhere to start Speaker A",
-    a: "Tap when Speaker A finishes",
-    b: "Tap when Speaker B finishes. The next round starts right away",
+    ready: (names) => `Tap anywhere to start ${names.a}`,
+    a: (names) => `Tap when ${names.a} finishes`,
+    b: (names) => `Tap when ${names.b} finishes. The next round starts right away`,
   };
 
   function currentTime(speaker) {
@@ -879,8 +958,8 @@
       setText(el.total[speaker], formatTime(total[speaker]));
     }
     setText(el.totalLabel, `Total · ${plural(done, "round")}`);
-    renderRatio(el.ratio, total);
-    setText(el.hint, HINTS[timer.phase]);
+    renderRatio(el.ratio, total, session.names);
+    setText(el.hint, HINTS[timer.phase](session.names));
   }
 
   // Briefly highlight the middle box so you notice the round was saved.
@@ -949,7 +1028,9 @@
     roundsCard: byId("sum-rounds-card"),
     rounds: byId("sum-rounds"),
     total: { a: byId("sum-total-a"), b: byId("sum-total-b") },
-    inRange: { a: byId("sum-inrange-a"), b: byId("sum-inrange-b") },
+    name: { a: byId("sum-name-a"), b: byId("sum-name-b") },
+    th: { a: byId("sum-th-a"), b: byId("sum-th-b") },
+    inRange:{ a: byId("sum-inrange-a"), b: byId("sum-inrange-b") },
     newButton: byId("sum-new"),
     historyButton: byId("sum-history"),
     deleteButton: byId("sum-delete"),
@@ -974,12 +1055,15 @@
     sum.roundsCard.hidden = !hasRounds;
     sum.deleteButton.hidden = !fromHistory;
 
+    const names = namesOf(s);
     for (const speaker of ["a", "b"]) {
+      setText(sum.name[speaker], names[speaker]);
+      setText(sum.th[speaker], names[speaker]);
       setText(sum.total[speaker], formatTime(total[speaker]));
       const ok = s.rounds.filter((r) => rangeState(r[speaker], s) === "ok").length;
       setText(sum.inRange[speaker], `${ok} of ${plural(count, "turn")} in range`);
     }
-    renderRatio(sum.ratio, total);
+    renderRatio(sum.ratio, total, names);
 
     sum.rounds.replaceChildren(...s.rounds.map((r, i) => {
       const row = document.createElement("tr");
@@ -1020,6 +1104,7 @@
     historyEmpty.hidden = sessions.length > 0;
     historyList.replaceChildren(...sessions.map((s) => {
       const total = sumRounds(s.rounds);
+      const names = namesOf(s);
       const item = document.createElement("li");
       const button = document.createElement("button");
       button.type = "button";
@@ -1031,12 +1116,12 @@
 
       const what = document.createElement("span");
       what.className = "what";
-      what.textContent = `${plural(s.rounds.length, "round")} · A ${formatTime(total.a)} · B ${formatTime(total.b)}`;
+      what.textContent = `${plural(s.rounds.length, "round")} · ${names.a} ${formatTime(total.a)} · ${names.b} ${formatTime(total.b)}`;
 
       const ratio = document.createElement("span");
       ratio.className = "ratio";
       ratio.setAttribute("role", "img");
-      renderRatio(ratio, total);
+      renderRatio(ratio, total, names);
 
       button.append(when, what, ratio);
       button.addEventListener("click", () => openSummary(s, { fromHistory: true }));
