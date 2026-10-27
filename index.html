@@ -8,9 +8,10 @@
 <meta name="apple-mobile-web-app-title" content="Radikov Timer">
 <title>Radikov Timer</title>
 <style>
-  /* Layout: one full screen. Two speaker panels fill it (stacked on a phone held
-     upright, side by side when turned sideways). The whole panel area is one big
-     tap target, like the button on a chess clock. */
+  /* Layout: one full screen. Speaker A's panel on top, a round summary in the
+     middle, Speaker B's panel below (side by side when the phone is turned
+     sideways). The whole area is one big tap target, like the button on a
+     chess clock. */
   :root {
     --bg: #eef1f5;
     --surface: #ffffff;
@@ -60,7 +61,7 @@
     padding-right: max(16px, env(safe-area-inset-right, 0px));
   }
 
-  /* Top bar: round number and reset button */
+  /* Top bar: current round number and reset button */
   .bar {
     display: flex;
     align-items: center;
@@ -92,14 +93,14 @@
     color: var(--on-accent);
   }
 
-  /* The big tap area holding both speaker panels */
+  /* The big tap area holding both speaker panels and the summary */
   .stage {
     all: unset;
     box-sizing: border-box;
     min-height: 0;
     display: flex;
     flex-direction: column;
-    gap: 12px;
+    gap: 10px;
     cursor: pointer;
     touch-action: manipulation;   /* no double-tap zoom */
     user-select: none;
@@ -108,7 +109,8 @@
   }
   .stage:focus-visible { outline: 3px solid var(--a); outline-offset: 4px; border-radius: var(--radius); }
   @media (orientation: landscape) and (min-width: 560px) {
-    .stage { flex-direction: row; }
+    .stage { flex-direction: row; align-items: stretch; }
+    .summary { align-self: center; }
   }
 
   /* One speaker panel. data-speaker="a" or "b" picks its colour. */
@@ -122,7 +124,7 @@
     flex-direction: column;
     align-items: center;
     justify-content: center;
-    gap: 8px;
+    gap: 6px;
     background: var(--surface);
     border: 2px solid var(--line);
     border-radius: var(--radius);
@@ -131,7 +133,7 @@
   .panel[data-speaker="b"] { --c: var(--b); --c-soft: var(--b-soft); }
 
   .name {
-    font-size: 1rem;
+    font-size: 0.95rem;
     font-weight: 700;
     letter-spacing: 0.06em;
     text-transform: uppercase;
@@ -139,16 +141,16 @@
   }
   .time {
     font-family: var(--font-digits);
-    font-size: clamp(3.5rem, min(19vw, 15vh), 10rem);
+    font-size: clamp(3rem, min(18vw, 11vh), 9rem);
     font-weight: 600;
     line-height: 1;
     font-variant-numeric: tabular-nums;
     letter-spacing: -0.02em;
   }
   .status {
-    font-size: 0.85rem;
+    font-size: 0.8rem;
     font-weight: 600;
-    padding: 4px 12px;
+    padding: 3px 12px;
     border-radius: 999px;
     color: var(--muted);
     border: 1px solid var(--line);
@@ -163,16 +165,54 @@
   .panel.is-finished { background: var(--c-soft); border-color: var(--c); }
   .panel.is-finished .status { color: var(--c); border-color: var(--c); }
 
+  /* Middle summary: last round and running totals, one column per speaker */
+  .summary {
+    display: grid;
+    grid-template-columns: 1fr auto auto;
+    align-items: baseline;
+    column-gap: 16px;
+    row-gap: 4px;
+    padding: 10px 14px;
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    font-variant-numeric: tabular-nums;
+  }
+  .sum-head {
+    font-size: 0.7rem;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    text-align: right;
+  }
+  .sum-head.a { color: var(--a); }
+  .sum-head.b { color: var(--b); }
+  .sum-label { font-size: 0.85rem; color: var(--muted); }
+  .sum-val {
+    font-family: var(--font-digits);
+    font-size: 1.05rem;
+    font-weight: 600;
+    text-align: right;
+  }
+  .sum-total { font-weight: 700; color: var(--fg); }
+  .sum-total.sum-val { font-size: 1.3rem; }
+  .summary.is-updated { animation: flash 900ms ease-out; }
+  @keyframes flash {
+    from { background: var(--a-soft); border-color: var(--a); }
+    to   { background: var(--surface); border-color: var(--line); }
+  }
+
   .hint {
     margin: 0;
     text-align: center;
-    font-size: 0.95rem;
+    font-size: 0.9rem;
     color: var(--muted);
     text-wrap: balance;
   }
 
   @media (prefers-reduced-motion: reduce) {
     .panel { transition: none; }
+    .summary.is-updated { animation: none; }
   }
 </style>
 
@@ -188,6 +228,21 @@
       <span class="time" id="time-a">0:00.0</span>
       <span class="status" id="status-a">Waiting</span>
     </span>
+
+    <span class="summary" id="summary" aria-live="polite">
+      <span></span>
+      <span class="sum-head a">A</span>
+      <span class="sum-head b">B</span>
+
+      <span class="sum-label" id="last-label">Last round</span>
+      <span class="sum-val" id="last-a">–</span>
+      <span class="sum-val" id="last-b">–</span>
+
+      <span class="sum-label sum-total" id="total-label">Total · 0 rounds</span>
+      <span class="sum-val sum-total" id="total-a">0:00.0</span>
+      <span class="sum-val sum-total" id="total-b">0:00.0</span>
+    </span>
+
     <span class="panel" id="panel-b" data-speaker="b">
       <span class="name">Speaker B</span>
       <span class="time" id="time-b">0:00.0</span>
@@ -195,7 +250,7 @@
     </span>
   </button>
 
-  <p class="hint" id="hint" aria-live="polite">Tap anywhere to start Speaker A</p>
+  <p class="hint" id="hint">Tap anywhere to start Speaker A</p>
 </div>
 
 <script>
@@ -203,14 +258,15 @@
 
   /*
    * HOW IT WORKS
-   * The timer moves through four phases, one tap at a time:
+   * The timer moves through three phases, one tap at a time:
    *
-   *   "ready"  -> both timers show 0:00.0
+   *   "ready"  -> nothing has started yet, both timers show 0:00.0
    *   "a"      -> Speaker A's timer runs
    *   "b"      -> A's time is frozen on screen, Speaker B's timer runs
-   *   "done"   -> both times are frozen on screen (the round is over)
    *
-   * A tap in "done" clears both timers and starts Speaker A for the next round.
+   * A tap during "b" finishes the round: both times are saved, shown in the
+   * middle of the screen as "Last round", and added to the totals. The next
+   * round then starts right away with Speaker A's timer running from 0.
    *
    * Times are measured with performance.now(), a clock that keeps counting even if
    * the screen updates pause (for example when the phone switches apps), so the
@@ -223,24 +279,34 @@
   const TAP_VIBRATE_MS = 30;      // short buzz on each tap so you feel it register (Android only; iPhone ignores it)
 
   // ----- Page elements -----
+  const byId = (id) => document.getElementById(id);
   const el = {
-    stage: document.getElementById("stage"),
-    reset: document.getElementById("reset"),
-    round: document.getElementById("round"),
-    hint: document.getElementById("hint"),
-    panel: { a: document.getElementById("panel-a"), b: document.getElementById("panel-b") },
-    time: { a: document.getElementById("time-a"), b: document.getElementById("time-b") },
-    status: { a: document.getElementById("status-a"), b: document.getElementById("status-b") },
+    stage: byId("stage"),
+    reset: byId("reset"),
+    round: byId("round"),
+    hint: byId("hint"),
+    panel: { a: byId("panel-a"), b: byId("panel-b") },
+    time: { a: byId("time-a"), b: byId("time-b") },
+    status: { a: byId("status-a"), b: byId("status-b") },
+    summary: byId("summary"),
+    lastLabel: byId("last-label"),
+    last: { a: byId("last-a"), b: byId("last-b") },
+    totalLabel: byId("total-label"),
+    total: { a: byId("total-a"), b: byId("total-b") },
   };
 
   // ----- State -----
-  const state = {
-    phase: "ready",            // "ready" | "a" | "b" | "done"
-    round: 1,
-    startedAt: 0,              // when the current speaker started (performance.now() value)
-    elapsed: { a: 0, b: 0 },   // finished speaking times in milliseconds
-    lastTapAt: -Infinity,
-  };
+  function freshState() {
+    return {
+      phase: "ready",            // "ready" | "a" | "b"
+      startedAt: 0,              // when the current speaker started (performance.now() value)
+      current: { a: 0, b: 0 },   // finished times in the round being played, in milliseconds
+      rounds: [],                // every completed round: { a: ms, b: ms }
+      total: { a: 0, b: 0 },     // sum of all completed rounds, in milliseconds
+      lastTapAt: -Infinity,
+    };
+  }
+  let state = freshState();
 
   function isRunning() {
     return state.phase === "a" || state.phase === "b";
@@ -258,16 +324,12 @@
         startSpeaker("a", now);
         break;
       case "a":
-        state.elapsed.a = now - state.startedAt;
+        state.current.a = now - state.startedAt;
         startSpeaker("b", now);
         break;
       case "b":
-        state.elapsed.b = now - state.startedAt;
-        state.phase = "done";
-        break;
-      case "done":
-        state.round += 1;
-        state.elapsed = { a: 0, b: 0 };
+        state.current.b = now - state.startedAt;
+        finishRound();
         startSpeaker("a", now);
         break;
     }
@@ -282,10 +344,18 @@
     startTicking();
   }
 
+  // Save the round's times, add them to the totals, and clear the timers.
+  function finishRound() {
+    const round = { a: state.current.a, b: state.current.b };
+    state.rounds.push(round);
+    state.total.a += round.a;
+    state.total.b += round.b;
+    state.current = { a: 0, b: 0 };
+    flashSummary();
+  }
+
   function resetAll() {
-    state.phase = "ready";
-    state.round = 1;
-    state.elapsed = { a: 0, b: 0 };
+    state = freshState();
     updateScreenLock();
     render();
   }
@@ -326,22 +396,20 @@
 
   // What each panel shows in each phase: [status text, panel look]
   const PANEL_VIEW = {
-    ready: { a: ["Waiting", ""],         b: ["Waiting", ""] },
+    ready: { a: ["Waiting", ""],          b: ["Waiting", ""] },
     a:     { a: ["Speaking", "speaking"], b: ["Up next", ""] },
     b:     { a: ["Finished", "finished"], b: ["Speaking", "speaking"] },
-    done:  { a: ["Finished", "finished"], b: ["Finished", "finished"] },
   };
 
   const HINTS = {
-    ready: () => "Tap anywhere to start Speaker A",
-    a: () => "Tap when Speaker A finishes",
-    b: () => "Tap when Speaker B finishes",
-    done: () => `Round ${state.round} complete. Tap to start round ${state.round + 1}`,
+    ready: "Tap anywhere to start Speaker A",
+    a: "Tap when Speaker A finishes",
+    b: "Tap when Speaker B finishes. The next round starts right away",
   };
 
   function currentTime(speaker) {
     if (state.phase === speaker) return performance.now() - state.startedAt;
-    return state.elapsed[speaker];
+    return state.current[speaker];
   }
 
   function setText(node, text) {
@@ -356,8 +424,24 @@
       el.panel[speaker].classList.toggle("is-speaking", look === "speaking");
       el.panel[speaker].classList.toggle("is-finished", look === "finished");
     }
-    setText(el.round, `Round ${state.round}`);
-    setText(el.hint, HINTS[state.phase]());
+
+    const done = state.rounds.length;
+    const last = state.rounds[done - 1];
+    setText(el.round, `Round ${done + 1}`);
+    setText(el.lastLabel, last ? `Round ${done}` : "Last round");
+    for (const speaker of ["a", "b"]) {
+      setText(el.last[speaker], last ? formatTime(last[speaker]) : "–");
+      setText(el.total[speaker], formatTime(state.total[speaker]));
+    }
+    setText(el.totalLabel, `Total · ${done} ${done === 1 ? "round" : "rounds"}`);
+    setText(el.hint, HINTS[state.phase]);
+  }
+
+  // Briefly highlight the summary so you notice the round was saved.
+  function flashSummary() {
+    el.summary.classList.remove("is-updated");
+    void el.summary.offsetWidth; // restart the animation if it is already playing
+    el.summary.classList.add("is-updated");
   }
 
   // Redraw on every screen frame while a timer runs.
@@ -373,7 +457,7 @@
     if (isRunning()) startTicking();
   }
 
-  // ----- Keep the phone screen awake while someone is speaking -----
+  // ----- Keep the phone screen awake while the timer runs -----
   // Not every browser allows this; if it is refused, the timer still works normally.
   let wakeLock = null;
   let wakeLockPending = false;
