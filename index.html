@@ -207,6 +207,39 @@
   .rounds td.num { font-weight: 600; }
   .legend-note { margin: 8px 0 0; font-size: 0.8rem; color: var(--muted); }
 
+  /* Chart: speaking time per round (bars), with the range as a green band */
+  .chart-keys { display: flex; flex-wrap: wrap; gap: 6px 16px; margin-top: 8px; font-size: 0.85rem; }
+  .chart-key { display: inline-flex; align-items: center; gap: 6px; min-width: 0; max-width: 100%; }
+  .chart-key .swatch { flex: none; width: 12px; height: 12px; border-radius: 3px; }
+  .chart-key.a .swatch { background: var(--a); }
+  .chart-key.b .swatch { background: var(--b); }
+  .chart-key.range .swatch { background: color-mix(in srgb, var(--ok) 18%, transparent); border: 1px dashed var(--ok); box-sizing: border-box; }
+  .chart-wrap { position: relative; overflow-x: auto; margin-top: 10px; }
+  .chart { display: block; }
+  .chart .ax { fill: var(--muted); font-size: 11px; font-family: var(--font-ui); font-variant-numeric: tabular-nums; }
+  .chart .grid { stroke: var(--line); stroke-width: 1; }
+  .chart .baseline { stroke: var(--muted); stroke-width: 1; }
+  .chart .band { fill: var(--ok); fill-opacity: 0.12; }
+  .chart .band-edge { stroke: var(--ok); stroke-width: 1; stroke-dasharray: 4 4; stroke-opacity: 0.7; }
+  .chart .bar-a { fill: var(--a); pointer-events: none; }
+  .chart .bar-b { fill: var(--b); pointer-events: none; }
+  .chart .hit { fill: var(--fg); fill-opacity: 0; cursor: pointer; }
+  .chart .hit.is-active { fill-opacity: 0.07; }
+  .chart-tip {
+    position: absolute;
+    z-index: 1;
+    pointer-events: none;
+    background: var(--fg);
+    color: var(--bg);
+    font-size: 0.8rem;
+    line-height: 1.4;
+    padding: 6px 10px;
+    border-radius: 8px;
+    white-space: nowrap;
+    font-variant-numeric: tabular-nums;
+  }
+  .chart-tip strong { display: block; }
+
   /* History */
   .history { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 10px; }
   .history-item {
@@ -474,6 +507,20 @@
       <div class="card" id="sum-ratio-card">
         <p class="eyebrow">Share of speaking time</p>
         <span class="ratio" id="sum-ratio" role="img"></span>
+      </div>
+
+      <div class="card" id="sum-chart-card">
+        <p class="eyebrow">Speaking time per round</p>
+        <div class="chart-keys">
+          <span class="chart-key a"><span class="swatch"></span><span class="clip" id="key-a">Speaker A</span></span>
+          <span class="chart-key b"><span class="swatch"></span><span class="clip" id="key-b">Speaker B</span></span>
+          <span class="chart-key range"><span class="swatch"></span><span>Range</span></span>
+        </div>
+        <div class="chart-wrap" id="chart-wrap">
+          <svg class="chart" id="sum-chart" role="img"></svg>
+          <div class="chart-tip" id="chart-tip" hidden></div>
+        </div>
+        <p class="legend-note">Across: round number. Up: speaking time (minutes:seconds). Tap a round to see its times; they are also in the table below.</p>
       </div>
 
       <div class="card" id="sum-rounds-card">
@@ -1036,7 +1083,9 @@
     results: byId("sum-results"),
     ratioCard: byId("sum-ratio-card"),
     ratio: byId("sum-ratio"),
+    chartCard: byId("sum-chart-card"),
     roundsCard: byId("sum-rounds-card"),
+    key: { a: byId("key-a"), b: byId("key-b") },
     rounds: byId("sum-rounds"),
     total: { a: byId("sum-total-a"), b: byId("sum-total-b") },
     name: { a: byId("sum-name-a"), b: byId("sum-name-b") },
@@ -1046,10 +1095,12 @@
     historyButton: byId("sum-history"),
     deleteButton: byId("sum-delete"),
   };
-  let summaryId = null;  // id of the past session being shown, for "Delete"
+  let summaryId = null;       // id of the past session being shown, for "Delete"
+  let summarySession = null;  // the session being shown, so the chart can redraw on resize
 
   function openSummary(s, { fromHistory, saveFailed = false }) {
     summaryId = fromHistory ? s.id : null;
+    summarySession = s;
     disarmDelete();
 
     const count = s.rounds.length;
@@ -1063,6 +1114,7 @@
     sum.empty.hidden = hasRounds;
     sum.results.hidden = !hasRounds;
     sum.ratioCard.hidden = !hasRounds;
+    sum.chartCard.hidden = !hasRounds;
     sum.roundsCard.hidden = !hasRounds;
     sum.deleteButton.hidden = !fromHistory;
 
@@ -1070,6 +1122,7 @@
     for (const speaker of ["a", "b"]) {
       setText(sum.name[speaker], names[speaker]);
       setText(sum.th[speaker], names[speaker]);
+      setText(sum.key[speaker], names[speaker]);
       setText(sum.total[speaker], formatTime(total[speaker]));
       const ok = s.rounds.filter((r) => rangeState(r[speaker], s) === "ok").length;
       setText(sum.inRange[speaker], `${ok} of ${plural(count, "turn")} in range`);
@@ -1094,7 +1147,155 @@
     }));
 
     showScreen("summary");
+    if (hasRounds) renderChart(s);  // after showScreen, so the chart can measure its width
   }
+
+  // ----- Chart: one pair of bars per round -----
+  const chart = {
+    wrap: byId("chart-wrap"),
+    svg: byId("sum-chart"),
+    tip: byId("chart-tip"),
+  };
+  const SVG_NS = "http://www.w3.org/2000/svg";
+  const CHART_HEIGHT = 220;
+  const CHART_MARGIN = { top: 12, right: 12, bottom: 28, left: 44 };
+  const MIN_ROUND_WIDTH = 28;  // with many rounds the chart gets wider and scrolls sideways
+
+  function svgEl(tag, attrs) {
+    const node = document.createElementNS(SVG_NS, tag);
+    for (const [key, value] of Object.entries(attrs)) node.setAttribute(key, value);
+    return node;
+  }
+
+  // Distance between the time lines on the side: a round value giving at most 5 lines.
+  function niceStep(maxMs) {
+    const stepsInSeconds = [5, 10, 15, 30, 60, 120, 300, 600, 900, 1800, 3600];
+    const step = stepsInSeconds.map((s) => s * 1000).find((s) => maxMs / s <= 5);
+    return step || Math.ceil(maxMs / 5 / 3_600_000) * 3_600_000;
+  }
+
+  // A bar standing on the baseline, with rounded top corners.
+  function barPath(x, top, width, base) {
+    const r = Math.min(4, width / 2, base - top);
+    return `M${x},${base} V${top + r} Q${x},${top} ${x + r},${top} ` +
+      `H${x + width - r} Q${x + width},${top} ${x + width},${top + r} V${base} Z`;
+  }
+
+  function renderChart(s) {
+    const rounds = s.rounds;
+    const names = namesOf(s);
+    const M = CHART_MARGIN;
+    const width = Math.max(chart.wrap.clientWidth || 320, M.left + M.right + rounds.length * MIN_ROUND_WIDTH);
+    const plotWidth = width - M.left - M.right;
+    const plotHeight = CHART_HEIGHT - M.top - M.bottom;
+
+    // Vertical scale: from 0 up to the longest turn (or the range maximum).
+    const peak = Math.max(s.max, ...rounds.flatMap((r) => [r.a, r.b]));
+    const step = niceStep(peak);
+    const yMax = Math.ceil((peak * 1.05) / step) * step;
+    const y = (ms) => M.top + plotHeight - (ms / yMax) * plotHeight;
+    const base = y(0);
+
+    chart.svg.replaceChildren();
+    chart.svg.setAttribute("viewBox", `0 0 ${width} ${CHART_HEIGHT}`);
+    chart.svg.setAttribute("width", width);
+    chart.svg.setAttribute("height", CHART_HEIGHT);
+    chart.svg.setAttribute("aria-label",
+      `Bar chart of speaking time per round for ${names.a} and ${names.b}, ` +
+      `with the range ${formatLimit(s.min)} to ${formatLimit(s.max)} shaded. The table below lists the same times.`);
+    hideTip();
+
+    // Range band and its edges
+    chart.svg.append(svgEl("rect", {
+      class: "band", x: M.left, y: y(s.max), width: plotWidth, height: y(s.min) - y(s.max),
+    }));
+
+    // Time lines and labels on the left
+    for (let v = step; v <= yMax; v += step) {
+      chart.svg.append(svgEl("line", { class: "grid", x1: M.left, x2: width - M.right, y1: y(v), y2: y(v) }));
+    }
+    for (let v = 0; v <= yMax; v += step) {
+      const label = svgEl("text", { class: "ax", x: M.left - 6, y: y(v) + 4, "text-anchor": "end" });
+      label.textContent = formatLimit(v);
+      chart.svg.append(label);
+    }
+    for (const v of [s.min, s.max]) {
+      chart.svg.append(svgEl("line", { class: "band-edge", x1: M.left, x2: width - M.right, y1: y(v), y2: y(v) }));
+    }
+
+    // Bars, one pair per round, with a tap area covering the whole round
+    const roundWidth = plotWidth / rounds.length;
+    const barWidth = Math.min(22, Math.max(3, (roundWidth * 0.7 - 2) / 2));
+    const labelEvery = Math.max(1, Math.ceil(24 / roundWidth));
+
+    rounds.forEach((round, i) => {
+      const center = M.left + roundWidth * (i + 0.5);
+
+      const hit = svgEl("rect", { class: "hit", x: M.left + roundWidth * i, y: M.top, width: roundWidth, height: plotHeight });
+      hit.addEventListener("pointerenter", (e) => { if (e.pointerType === "mouse") showTip(i, hit); });
+      hit.addEventListener("pointerleave", (e) => { if (e.pointerType === "mouse") hideTip(); });
+      hit.addEventListener("click", () => showTip(i, hit));
+      chart.svg.append(hit);
+
+      const bars = [["a", center - 1 - barWidth], ["b", center + 1]];
+      for (const [speaker, x] of bars) {
+        const top = y(round[speaker]);
+        if (base - top >= 0.5) chart.svg.append(svgEl("path", { class: `bar-${speaker}`, d: barPath(x, top, barWidth, base) }));
+      }
+
+      if (i % labelEvery === 0) {
+        const label = svgEl("text", { class: "ax", x: center, y: CHART_HEIGHT - 8, "text-anchor": "middle" });
+        label.textContent = String(i + 1);
+        chart.svg.append(label);
+      }
+    });
+
+    chart.svg.append(svgEl("line", { class: "baseline", x1: M.left, x2: width - M.right, y1: base, y2: base }));
+
+    // Tooltip: round number and both times with their range status
+    function showTip(i, hit) {
+      for (const other of chart.svg.querySelectorAll(".hit.is-active")) other.classList.remove("is-active");
+      hit.classList.add("is-active");
+
+      const round = rounds[i];
+      const title = document.createElement("strong");
+      title.textContent = `Round ${i + 1}`;
+      const lines = ["a", "b"].map((speaker) => {
+        const line = document.createElement("span");
+        line.style.display = "block";
+        line.textContent = `${names[speaker]}: ${formatTime(round[speaker])} · ${RANGE_WORDS[rangeState(round[speaker], s)]}`;
+        return line;
+      });
+      chart.tip.replaceChildren(title, ...lines);
+      chart.tip.hidden = false;
+
+      // Place it above the taller bar, kept inside the chart.
+      const center = M.left + roundWidth * (i + 0.5);
+      const tipWidth = chart.tip.offsetWidth;
+      const tipHeight = chart.tip.offsetHeight;
+      const left = Math.min(Math.max(center - tipWidth / 2, 0), width - tipWidth);
+      const top = Math.max(y(Math.max(round.a, round.b)) - tipHeight - 8, 0);
+      chart.tip.style.left = `${left}px`;
+      chart.tip.style.top = `${top}px`;
+    }
+  }
+
+  function hideTip() {
+    chart.tip.hidden = true;
+    for (const hit of chart.svg.querySelectorAll(".hit.is-active")) hit.classList.remove("is-active");
+  }
+
+  // Tapping outside the bars closes the tooltip; turning the phone redraws the chart.
+  document.addEventListener("click", (e) => {
+    if (!chart.tip.hidden && !e.target.closest?.(".hit")) hideTip();
+  });
+  let resizeTimer = 0;
+  window.addEventListener("resize", () => {
+    clearTimeout(resizeTimer);
+    resizeTimer = setTimeout(() => {
+      if (!screens.summary.hidden && summarySession && summarySession.rounds.length > 0) renderChart(summarySession);
+    }, 150);
+  });
 
   sum.newButton.addEventListener("click", openSetup);
   sum.historyButton.addEventListener("click", openHistory);
